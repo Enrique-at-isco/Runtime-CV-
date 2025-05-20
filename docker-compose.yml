@@ -4,7 +4,7 @@ services:
   cnc-dashboard:
     build: .
     ports:
-      - "5000:5000"
+      - "8000:8000"  # Changed to FastAPI's default port
     devices:
       - "/dev/video0:/dev/video0"  # Mount the camera device
     volumes:
@@ -15,6 +15,7 @@ services:
       - FLASK_APP=app.py
       - PYTHONUNBUFFERED=1  # Ensure Python output is sent straight to terminal
       - DATABASE_PATH=/app/data/machine_states.db  # Set database path
+    command: uvicorn app:app --host 0.0.0.0 --port 8000  # Added command to run FastAPI
     user: "${UID:-1000}:${GID:-1000}"  # Use host user's UID/GID
     restart: unless-stopped
     privileged: true  # Required for camera access 
