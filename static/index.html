@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNC Runtime Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="theme-toggle">
+                <label class="switch">
+                    <input type="checkbox" id="themeToggle">
+                    <span class="slider round"></span>
+                </label>
+                <span class="theme-label">Dark Mode</span>
+            </div>
+            <div class="header-content">
+                <h1>CNC Runtime Dashboard</h1>
+                <div class="header-buttons">
+                    <button id="exportDataBtn" class="export-data-btn" onclick="exportStateData()">Export State Data</button>
+                    <button id="generateReportBtn" class="generate-report-btn">Generate Report</button>
+                    <button id="clearDataBtn" class="clear-data-btn" onclick="clearAllData()">Clear All Data</button>
+                </div>
+            </div>
+            <div class="current-status">
+                <h2><span id="current-state">Unknown</span></h2>
+                <div class="status-time-info">
+                    <p>Current Time: <span id="current-time">-</span></p>
+                    <p>Time in State: <span id="state-duration">-</span></p>
+                </div>
+                <p id="tag-id">No tag detected</p>
+            </div>
+        </header>
+
+        <div class="time-scale-tabs">
+            <button class="tab-btn active" data-period="today">Today</button>
+            <button class="tab-btn" data-period="week">This Week</button>
+            <button class="tab-btn" data-period="month">This Month</button>
+            <button class="tab-btn" data-period="quarter">This Quarter</button>
+            <button class="tab-btn" data-period="year">This Year</button>
+        </div>
+
+        <div class="metrics-container">
+            <h2>Performance Metrics</h2>
+            <div class="metrics-grid">
+                <div class="metric-card full-width">
+                    <h3>Runtime Timeline</h3>
+                    <div class="chronograph-legend">
+                        <div class="legend-item">
+                            <span class="legend-dot running"></span>
+                            <span>Running</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot idle"></span>
+                            <span>Idle</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot error"></span>
+                            <span>Error</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot no-data"></span>
+                            <span>No Data</span>
+                        </div>
+                    </div>
+                    <div class="chronograph-container">
+                        <div class="chronograph-timeline" id="chronographTimeline">
+                            <!-- Timeline segments will be added here -->
+                        </div>
+                        <div class="time-markers" id="timeMarkers">
+                            <!-- Time markers will be added here -->
+                        </div>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <h3>State Distribution</h3>
+                    <canvas id="metricsChart"></canvas>
+                </div>
+                <div class="metric-card">
+                    <h3>Runtime Analysis</h3>
+                    <div class="runtime-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Total Runtime</span>
+                            <span class="stat-value" id="totalRuntime">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Efficiency</span>
+                            <span class="stat-value" id="efficiency">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Peak Performance</span>
+                            <span class="stat-value" id="peakHour">-</span>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="hourlyChart"></canvas>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <h3>Performance Trends</h3>
+                    <div class="trend-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Best Day</span>
+                            <span class="stat-value" id="bestDay">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Avg. Daily Runtime</span>
+                            <span class="stat-value" id="avgRuntime">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Weekly Efficiency</span>
+                            <span class="stat-value" id="weeklyEfficiency">-</span>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="state-runtimes">
+            <h2>State Runtimes</h2>
+            <div class="runtime-stats-grid">
+                <div class="runtime-stat">
+                    <span class="runtime-label">Running Time</span>
+                    <span class="runtime-value running" id="runningTime">-</span>
+                </div>
+                <div class="runtime-stat">
+                    <span class="runtime-label">Idle Time</span>
+                    <span class="runtime-value idle" id="idleTime">-</span>
+                </div>
+                <div class="runtime-stat">
+                    <span class="runtime-label">Error Time</span>
+                    <span class="runtime-value error" id="errorTime">-</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="events-container">
+            <h2>State Change Log</h2>
+            <div class="events-header">
+                <div class="event-filters">
+                    <select id="stateFilter" class="event-filter">
+                        <option value="all">All States</option>
+                        <option value="RUNNING">Running</option>
+                        <option value="IDLE">Idle</option>
+                        <option value="ERROR">Error</option>
+                    </select>
+                    <select id="limitFilter" class="event-filter">
+                        <option value="10" selected>Last 10 events</option>
+                        <option value="25">Last 25 events</option>
+                        <option value="50">Last 50 events</option>
+                        <option value="100">Last 100 events</option>
+                    </select>
+                </div>
+                <button id="refreshLog" class="refresh-btn">
+                    <span class="refresh-icon">↻</span> Refresh Log
+                </button>
+            </div>
+            <div class="events-table-container">
+                <table class="events-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>State</th>
+                            <th>Duration</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody id="events-list">
+                        <!-- Events will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Modal -->
+    <div id="reportModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Generate Runtime Report</h2>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>Select time period for the report:</p>
+                <div class="report-options">
+                    <button class="report-period-btn" data-period="today">Today</button>
+                    <button class="report-period-btn" data-period="week">This Week</button>
+                    <button class="report-period-btn" data-period="month">This Month</button>
+                    <button class="report-period-btn" data-period="quarter">This Quarter</button>
+                    <button class="report-period-btn" data-period="year">This Year</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <script src="/static/dashboard.js"></script>
+</body>
+</html> 

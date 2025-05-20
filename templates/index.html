@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNC Runtime Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>CNC Runtime Dashboard</h1>
+            <div class="button-group">
+                <button id="exportDataBtn" onclick="exportStateData()">Export State Data</button>
+                <button id="clearDataBtn" onclick="clearAllData()">Clear All Data</button>
+            </div>
+        </div>
+
+        <div class="current-status">
+            <div id="current-state">Current Status: -</div>
+            <div id="state-description" class="status-info">Description: -</div>
+            <div id="last-update" class="status-info">Last Updated: -</div>
+        </div>
+
+        <div id="tag-id">Tag ID: -</div>
+
+        <div class="metrics-section">
+            <div class="metrics-header">
+                <h2>Performance Metrics</h2>
+                <div class="time-period-buttons">
+                    <button class="time-btn active" data-period="today">Today</button>
+                    <button class="time-btn" data-period="week">This Week</button>
+                    <button class="time-btn" data-period="month">This Month</button>
+                    <button class="time-btn" data-period="quarter">This Quarter</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="metricsChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html> 

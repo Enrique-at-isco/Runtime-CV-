@@ -1,0 +1,17 @@
+{
+  "name": "cnc-dashboard",
+  "version": "1.0.0",
+  "description": "CNC Runtime Dashboard Frontend",
+  "main": "static/js/main.js",
+  "scripts": {
+    "start": "node static/js/main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.2",
+    "chart.js": "^4.4.1",
+    "moment": "^2.29.4"
+  },
+  "author": "",
+  "license": "ISC"
+} 

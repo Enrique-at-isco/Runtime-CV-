@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  cnc-dashboard:
+    build: .
+    ports:
+      - "5000:5000"
+    devices:
+      - "/dev/video0:/dev/video0"  # Mount the camera device
+    volumes:
+      - .:/app  # Mount the current directory for development
+      - ./data:/app/data  # Persistent data storage
+      - ./machine_states.db:/app/machine_states.db  # Database file
+      - ./cnc_dashboard.db:/app/cnc_dashboard.db  # Database file
+    environment:
+      - FLASK_ENV=development
+      - FLASK_APP=app.py
+      - PYTHONUNBUFFERED=1  # Ensure Python output is sent straight to terminal
+    user: "${UID:-1000}:${GID:-1000}"  # Use host user's UID/GID
+    restart: unless-stopped
+    privileged: true  # Required for camera access 
