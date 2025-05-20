@@ -13,6 +13,7 @@ import os
 import webbrowser
 import threading
 import time
+import socket
 
 app = FastAPI()
 
@@ -25,10 +26,28 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+# Function to get IP address
+def get_ip():
+    try:
+        # Get the first non-localhost IP address
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "localhost"
+
 # Function to open browser
 def open_browser():
     time.sleep(1.5)  # Wait for server to start
-    webbrowser.open('http://localhost:8000')
+    ip = get_ip()
+    url = f'http://{ip}:8000'
+    print(f"\n=== Server is running! Access it at: {url} ===\n")
+    try:
+        webbrowser.open(url)
+    except Exception as e:
+        print(f"Could not open browser automatically. Please open {url} manually.")
 
 # Start browser in a separate thread when the app starts
 @app.on_event("startup")
