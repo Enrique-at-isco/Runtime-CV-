@@ -9,6 +9,7 @@ import csv
 from io import StringIO
 from typing import Dict, List, Optional
 from fastapi.responses import StreamingResponse
+import os
 
 app = FastAPI()
 
@@ -26,7 +27,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Database setup
 def get_db():
-    db = sqlite3.connect('machine_states.db')
+    db_path = os.getenv('DATABASE_PATH', 'machine_states.db')
+    db = sqlite3.connect(db_path)
     db.row_factory = sqlite3.Row
     return db
 
