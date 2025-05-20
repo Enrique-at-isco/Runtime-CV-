@@ -10,6 +10,9 @@ from io import StringIO
 from typing import Dict, List, Optional
 from fastapi.responses import StreamingResponse
 import os
+import webbrowser
+import threading
+import time
 
 app = FastAPI()
 
@@ -21,6 +24,16 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+# Function to open browser
+def open_browser():
+    time.sleep(1.5)  # Wait for server to start
+    webbrowser.open('http://localhost:8000')
+
+# Start browser in a separate thread when the app starts
+@app.on_event("startup")
+async def startup_event():
+    threading.Thread(target=open_browser).start()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
