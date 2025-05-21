@@ -5,11 +5,13 @@ Requires=docker.service
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/cnc-dashboard
-ExecStart=/home/pi/cnc-dashboard/startup.sh
+User=cv
+WorkingDirectory=/home/cv/cnc-dashboard
+ExecStart=/home/cv/cnc-dashboard/startup.sh
 Restart=on-failure
 RestartSec=10
+StandardOutput=append:/var/log/cnc-dashboard.log
+StandardError=append:/var/log/cnc-dashboard.error.log
 
 [Install]
 WantedBy=multi-user.target 
