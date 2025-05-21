@@ -5,14 +5,15 @@ from datetime import datetime
 from models import MachineState, SessionLocal, CST
 import math
 import time
+from typing import Optional, List, Tuple
 
 class ArUcoStateDetector:
-    def __init__(self, camera_id=0, movement_threshold=0.5, error_timeout=3.0, state_change_delay=0.5):
+    def __init__(self, camera_id: Optional[int] = None, movement_threshold=0.5, error_timeout=3.0, state_change_delay=0.5):
         """
         Initialize the ArUco state detector.
         
         Args:
-            camera_id: Camera device ID (default: 0)
+            camera_id: Camera device ID (default: None)
             movement_threshold: Minimum movement distance to consider as motion (in pixels)
             error_timeout: Time without tag detection to trigger ERROR state (in seconds)
             state_change_delay: Time required in new state before registering the change (in seconds)
@@ -29,8 +30,8 @@ class ArUcoStateDetector:
         
         # Initialize ArUco detector
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-        self.aruco_params = cv2.aruco.DetectorParameters()
-        self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
+        self.parameters = cv2.aruco.DetectorParameters()
+        self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.parameters)
         
         # State tracking
         self.last_position = None
@@ -281,6 +282,73 @@ class ArUcoStateDetector:
             if self.cap:
                 self.cap.release()
             cv2.destroyAllWindows()
+
+    @staticmethod
+    def get_available_cameras() -> List[int]:
+        """Returns a list of available camera indices."""
+        available_cameras = []
+        for i in range(10):  # Check first 10 indices
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                available_cameras.append(i)
+                cap.release()
+        return available_cameras
+
+    def initialize_camera(self, camera_id: Optional[int] = None) -> bool:
+        """Initialize camera with given ID or auto-select if None."""
+        if camera_id is not None:
+            self.camera_id = camera_id
+        
+        if self.camera_id is None:
+            available_cameras = self.get_available_cameras()
+            if not available_cameras:
+                raise RuntimeError("No cameras found!")
+            elif len(available_cameras) == 1:
+                self.camera_id = available_cameras[0]
+            else:
+                raise RuntimeError("Multiple cameras found. Please select one.")
+        
+        self.cap = cv2.VideoCapture(self.camera_id)
+        if not self.cap.isOpened():
+            raise RuntimeError(f"Failed to open camera {self.camera_id}")
+        return True
+
+    def get_camera_info(self) -> dict:
+        """Get information about the current camera."""
+        if not self.cap:
+            return {"error": "Camera not initialized"}
+        
+        return {
+            "camera_id": self.camera_id,
+            "width": int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            "height": int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            "fps": int(self.cap.get(cv2.CAP_PROP_FPS))
+        }
+
+    def detect_state(self) -> Tuple[str, Optional[str], Optional[int]]:
+        """Detect the current state from the camera feed."""
+        if not self.cap:
+            if not self.initialize_camera():
+                return "ERROR", "Camera not initialized", None
+
+        ret, frame = self.cap.read()
+        if not ret:
+            return "ERROR", "Failed to read from camera", None
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        corners, ids, rejected = self.detector.detectMarkers(gray)
+
+        if ids is not None:
+            # Get the first detected tag
+            tag_id = ids[0][0]
+            return "RUNNING", f"Detected tag {tag_id}", tag_id
+        else:
+            return "IDLE", "No tag detected", None
+
+    def __del__(self):
+        """Cleanup when the object is destroyed."""
+        if self.cap:
+            self.cap.release()
 
 # Create a global instance
 detector = ArUcoStateDetector(state_change_delay=0.5) 

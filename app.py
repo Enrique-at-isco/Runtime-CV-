@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 from fastapi.responses import StreamingResponse
 import os
 import socket
+from apriltag_detector import ArUcoStateDetector
 
 app = FastAPI()
 
@@ -22,6 +23,50 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+# Initialize detector
+detector = ArUcoStateDetector()
+
+# Equipment name storage
+EQUIPMENT_NAME_FILE = "equipment_name.txt"
+
+def get_equipment_name() -> str:
+    """Get the current equipment name."""
+    try:
+        if os.path.exists(EQUIPMENT_NAME_FILE):
+            with open(EQUIPMENT_NAME_FILE, 'r') as f:
+                return f.read().strip()
+    except Exception:
+        pass
+    return "CNC Machine"  # Default name
+
+def save_equipment_name(name: str) -> None:
+    """Save the equipment name."""
+    with open(EQUIPMENT_NAME_FILE, 'w') as f:
+        f.write(name)
+
+@app.get("/api/equipment/name")
+async def get_equipment_name_endpoint():
+    """Get the current equipment name."""
+    return {"name": get_equipment_name()}
+
+@app.post("/api/equipment/name")
+async def update_equipment_name(name: Dict[str, str]):
+    """Update the equipment name."""
+    try:
+        new_name = name.get("name", "").strip()
+        if not new_name:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Equipment name cannot be empty"}
+            )
+        save_equipment_name(new_name)
+        return {"status": "success", "name": new_name}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 # Function to get IP address
 def get_ip():
@@ -206,4 +251,39 @@ async def export_states():
     )
     response.headers["Content-Disposition"] = "attachment; filename=state_changes.csv"
     
-    return response 
+    return response
+
+@app.get("/api/cameras")
+async def get_available_cameras():
+    """Get list of available cameras."""
+    try:
+        cameras = ArUcoStateDetector.get_available_cameras()
+        return {"cameras": cameras}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.post("/api/camera/select/{camera_id}")
+async def select_camera(camera_id: int):
+    """Select a camera by ID."""
+    try:
+        detector.initialize_camera(camera_id)
+        return {"status": "success", "camera_info": detector.get_camera_info()}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.get("/api/camera/info")
+async def get_camera_info():
+    """Get information about the current camera."""
+    try:
+        return detector.get_camera_info()
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        ) 
