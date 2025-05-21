@@ -54,7 +54,11 @@ class ArUcoStateDetector:
         
         # Camera setup
         self.cap = None
-        self.setup_camera()
+        try:
+            self.setup_camera()
+        except Exception as e:
+            print(f"Warning: Failed to initialize camera: {e}")
+            self.cap = None
         
         # State descriptions
         self.descriptions = {
