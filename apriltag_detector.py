@@ -32,6 +32,12 @@ class ArUcoStateDetector:
         self.aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
         self.parameters = cv2.aruco.DetectorParameters_create()
         
+        # Compatibility for OpenCV >= 4.7.0
+        self.detector = None
+        version = tuple(map(int, cv2.__version__.split(".")[:2]))
+        if version >= (4, 7):
+            self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.parameters)
+        
         # State tracking
         self.last_position = None
         self.last_detection_time = None
@@ -188,7 +194,11 @@ class ArUcoStateDetector:
                 raise RuntimeError("Failed to capture frame")
 
             # Detect ArUco markers
-            corners, ids, _ = self.detector.detectMarkers(frame)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if self.detector is not None:
+                corners, ids, rejected = self.detector.detectMarkers(gray)
+            else:
+                corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
             
             current_time = datetime.now(CST)  # Use timezone-aware datetime
             movement = 0.0
@@ -345,7 +355,10 @@ class ArUcoStateDetector:
                 return "ERROR", "Camera not initialized", None
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, rejected = self.detector.detectMarkers(gray)
+        if self.detector is not None:
+            corners, ids, rejected = self.detector.detectMarkers(gray)
+        else:
+            corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
 
         if ids is not None:
             # Get the first detected tag
