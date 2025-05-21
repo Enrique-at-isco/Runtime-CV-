@@ -17,6 +17,7 @@ import numpy as np
 import time
 import asyncio
 import subprocess
+import sys
 
 app = FastAPI()
 
@@ -34,18 +35,28 @@ def detect_available_cameras() -> list:
     max_devices = 40
     brio_device = None
     generic_device = None
+    print("\n===== ENVIRONMENT DIAGNOSTICS =====")
+    print(f"User ID: {os.getuid()}  Effective User ID: {os.geteuid()}")
+    print(f"Python version: {sys.version}")
+    print(f"Environment: {os.environ}")
+    print("Sleeping 5 seconds before camera detection...")
+    time.sleep(5)
     print("Scanning for Logitech BRIO and available cameras...")
     for i in range(max_devices):
         dev = f"/dev/video{i}"
         try:
+            print(f"\n--- Checking {dev} ---")
             result = subprocess.run([
                 "v4l2-ctl", "--device", dev, "--all"
             ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            print(f"v4l2-ctl output for {dev}:\n{result.stdout}\n{result.stderr}")
             if "Logitech BRIO" in result.stdout:
                 print(f"Found Logitech BRIO at {dev}")
                 cap = cv2.VideoCapture(dev)
+                print(f"  cap.isOpened(): {cap.isOpened()}")
                 if cap.isOpened():
                     ret, frame = cap.read()
+                    print(f"  ret from cap.read(): {ret}")
                     if ret:
                         print(f"  {dev} is a working Logitech BRIO video capture device!")
                         cap.release()
@@ -60,9 +71,12 @@ def detect_available_cameras() -> list:
     # Fallback: return first working video device
     for i in range(max_devices):
         dev = f"/dev/video{i}"
+        print(f"\n--- Checking {dev} (generic fallback) ---")
         cap = cv2.VideoCapture(dev)
+        print(f"  cap.isOpened(): {cap.isOpened()}")
         if cap.isOpened():
             ret, frame = cap.read()
+            print(f"  ret from cap.read(): {ret}")
             if ret:
                 print(f"  {dev} is a working generic video capture device!")
                 cap.release()
