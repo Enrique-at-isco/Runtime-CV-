@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 import time
 import asyncio
+import subprocess
 
 app = FastAPI()
 
@@ -28,25 +29,50 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-def detect_available_cameras() -> List[str]:
-    """Detect all available cameras on the system by device path."""
-    device_paths = [f"/dev/video{i}" for i in range(4)]
-    available_cameras = []
-    for dev in device_paths:
-        print(f"Trying device {dev}...")
+def detect_available_cameras() -> list:
+    """Detect Logitech BRIO or first available camera using v4l2-ctl and OpenCV."""
+    max_devices = 40
+    brio_device = None
+    generic_device = None
+    print("Scanning for Logitech BRIO and available cameras...")
+    for i in range(max_devices):
+        dev = f"/dev/video{i}"
+        try:
+            result = subprocess.run([
+                "v4l2-ctl", "--device", dev, "--all"
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if "Logitech BRIO" in result.stdout:
+                print(f"Found Logitech BRIO at {dev}")
+                cap = cv2.VideoCapture(dev)
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    if ret:
+                        print(f"  {dev} is a working Logitech BRIO video capture device!")
+                        cap.release()
+                        brio_device = dev
+                        break
+                    cap.release()
+        except Exception as e:
+            print(f"  Error checking {dev}: {e}")
+            continue
+    if brio_device:
+        return [brio_device]
+    # Fallback: return first working video device
+    for i in range(max_devices):
+        dev = f"/dev/video{i}"
         cap = cv2.VideoCapture(dev)
         if cap.isOpened():
             ret, frame = cap.read()
             if ret:
-                print(f"  {dev} opened successfully!")
-                available_cameras.append(dev)
-            else:
-                print(f"  {dev} opened but failed to read frame.")
+                print(f"  {dev} is a working generic video capture device!")
+                cap.release()
+                generic_device = dev
+                break
             cap.release()
-        else:
-            print(f"  {dev} could not be opened.")
-    print(f"Available cameras: {available_cameras}")
-    return available_cameras
+    if generic_device:
+        return [generic_device]
+    print("No working camera found.")
+    return []
 
 def initialize_camera(camera_index: Optional[int] = None) -> bool:
     """Initialize camera with the given ID or automatically select one if not specified."""
