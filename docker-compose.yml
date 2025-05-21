@@ -8,6 +8,9 @@ services:
       - "8000:8000"  # Changed to FastAPI's default port
     devices:
       - "/dev/video0:/dev/video0"  # Mount the camera device
+      - "/dev/video1:/dev/video1"  # Additional camera device
+      - "/dev/video2:/dev/video2"  # Additional camera device
+      - "/dev/video3:/dev/video3"  # Additional camera device
     volumes:
       - .:/app  # Mount the current directory for development
       - ./data:/app/data  # Persistent data storage

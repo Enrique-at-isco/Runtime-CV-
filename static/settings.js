@@ -71,6 +71,20 @@ async function initializeSettings() {
         }
     });
     
+    // Dark mode toggle - apply theme immediately
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('change', () => {
+            if (themeToggle.checked) {
+                document.body.classList.add('dark-mode');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.body.classList.remove('dark-mode');
+                localStorage.setItem('theme', 'light');
+            }
+        });
+    }
+    
     // Save equipment name
     document.getElementById('saveEquipmentName').addEventListener('click', async () => {
         const equipmentName = document.getElementById('equipmentName').value;
@@ -86,6 +100,11 @@ async function initializeSettings() {
             
             if (data.status === 'success') {
                 localStorage.setItem('equipmentName', equipmentName);
+                // Update dashboard title immediately
+                const titleElem = document.querySelector('.header-left h1');
+                if (titleElem) {
+                    titleElem.textContent = `CNC Runtime Dashboard: ${equipmentName}`;
+                }
                 alert('Equipment name saved');
             } else {
                 alert('Error saving equipment name: ' + data.error);
