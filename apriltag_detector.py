@@ -29,8 +29,8 @@ class ArUcoStateDetector:
         self.movement_confidence_threshold = 4  # Number of frames that must show movement
         
         # Initialize ArUco detector
-        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-        self.detector = cv2.aruco.ArucoDetector(self.aruco_dict)
+        self.aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
+        self.parameters = cv2.aruco.DetectorParameters_create()
         
         # State tracking
         self.last_position = None
