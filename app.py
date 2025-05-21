@@ -10,9 +10,6 @@ from io import StringIO
 from typing import Dict, List, Optional
 from fastapi.responses import StreamingResponse
 import os
-import webbrowser
-import threading
-import time
 import socket
 
 app = FastAPI()
@@ -38,21 +35,14 @@ def get_ip():
     except:
         return "localhost"
 
-# Function to open browser
-def open_browser():
-    time.sleep(1.5)  # Wait for server to start
-    ip = get_ip()
-    url = f'http://{ip}:8000'
-    print(f"\n=== Server is running! Access it at: {url} ===\n")
-    try:
-        webbrowser.open(url)
-    except Exception as e:
-        print(f"Could not open browser automatically. Please open {url} manually.")
-
-# Start browser in a separate thread when the app starts
+# Print URL on startup
 @app.on_event("startup")
 async def startup_event():
-    threading.Thread(target=open_browser).start()
+    ip = get_ip()
+    url = f'http://{ip}:8000'
+    print("\n" + "="*50)
+    print(f"=== Server is running! Access it at: {url} ===")
+    print("="*50 + "\n")
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
