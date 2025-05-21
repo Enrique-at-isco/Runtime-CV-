@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     libgl1-mesa-dev \
     curl \
     gnupg \
+    v4l-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20 LTS
