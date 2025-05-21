@@ -1,0 +1,15 @@
+[Unit]
+Description=CNC Dashboard Startup Service
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/cnc-dashboard
+ExecStart=/home/pi/cnc-dashboard/startup.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target 
