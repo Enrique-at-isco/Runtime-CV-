@@ -8,7 +8,7 @@ import time
 from typing import Optional, List, Tuple
 
 class ArUcoStateDetector:
-    def __init__(self, camera_id: Optional[int] = None, movement_threshold=0.5, error_timeout=3.0, state_change_delay=0.5):
+    def __init__(self, camera_id: Optional[str] = None, movement_threshold=0.5, error_timeout=3.0, state_change_delay=0.5):
         """
         Initialize the ArUco state detector.
         
@@ -74,7 +74,6 @@ class ArUcoStateDetector:
 
     def setup_camera(self):
         """Set up camera with optimal parameters for performance."""
-        # Try different backends based on platform
         try:
             # Try V4L2 first (Linux)
             self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_V4L2)
@@ -82,7 +81,6 @@ class ArUcoStateDetector:
                 # Try DirectShow (Windows)
                 self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
         except:
-            # If both fail, try default backend
             self.cap = cv2.VideoCapture(self.camera_id)
         
         if not self.cap.isOpened():
@@ -340,15 +338,11 @@ class ArUcoStateDetector:
             "fps": int(self.cap.get(cv2.CAP_PROP_FPS))
         }
 
-    def detect_state(self) -> Tuple[str, Optional[str], Optional[int]]:
+    def detect_state(self, frame):
         """Detect the current state from the camera feed."""
         if not self.cap:
             if not self.initialize_camera():
                 return "ERROR", "Camera not initialized", None
-
-        ret, frame = self.cap.read()
-        if not ret:
-            return "ERROR", "Failed to read from camera", None
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = self.detector.detectMarkers(gray)

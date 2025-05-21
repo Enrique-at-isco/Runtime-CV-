@@ -88,50 +88,21 @@ def detect_available_cameras() -> list:
     print("No working camera found.")
     return []
 
-def initialize_camera(camera_index: Optional[int] = None) -> bool:
-    """Initialize camera with the given ID or automatically select one if not specified."""
-    global camera, detector, camera_id
-    
+def initialize_camera(camera_index: Optional[str] = None) -> bool:
+    """Initialize camera with the given device path or automatically select one if not specified."""
+    global detector, camera_id
     try:
-        if camera is not None:
-            camera.release()
-        
         if camera_index is None:
             # Auto-detect available cameras
             available_cameras = detect_available_cameras()
-            
             if not available_cameras:
                 print("No cameras found!")
                 return False
-            
-            if len(available_cameras) == 1:
-                # If only one camera is available, use it automatically
-                camera_id = available_cameras[0]
-                print(f"Automatically selected camera {camera_id}")
-            else:
-                # If multiple cameras are available, use the first one by default
-                # The user can change it later through the API
-                camera_id = available_cameras[0]
-                print(f"Multiple cameras found: {available_cameras}")
-                print(f"Using camera {camera_id} by default. Use /api/camera/select/{camera_id} to change.")
+            camera_id = available_cameras[0]
+            print(f"Automatically selected camera {camera_id}")
         else:
             camera_id = camera_index
-        
-        # Try different backends based on platform
-        try:
-            # Try V4L2 first (Linux)
-            camera = cv2.VideoCapture(camera_id, cv2.CAP_V4L2)
-            if not camera.isOpened():
-                # Try DirectShow (Windows)
-                camera = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
-        except:
-            # If both fail, try default backend
-            camera = cv2.VideoCapture(camera_id)
-            
-        if not camera.isOpened():
-            raise Exception(f"Could not open camera {camera_id}")
-        
-        detector = ArUcoStateDetector(camera)
+        detector = ArUcoStateDetector(camera_id)
         return True
     except Exception as e:
         print(f"Error initializing camera: {e}")
@@ -523,39 +494,31 @@ async def get_camera_info():
 
 def process_camera_feed():
     global current_state, last_tag_id, state_start_time
-    
     while True:
-        if camera is None or not camera.isOpened():
-            time.sleep(1)
-            continue
-        
         try:
-            ret, frame = camera.read()
+            if detector is None or detector.cap is None or not detector.cap.isOpened():
+                time.sleep(1)
+                continue
+            ret, frame = detector.cap.read()
             if not ret:
                 continue
-            
             # Process frame with ArUco detector
             state, tag_id = detector.detect_state(frame)
-            
             # Update state if changed
             if state != current_state:
                 if state_start_time is not None:
                     duration = int((datetime.now() - state_start_time).total_seconds())
                     save_state_change(current_state, duration)
-                
                 current_state = state
                 state_start_time = datetime.now()
                 last_tag_id = tag_id
-                
                 # Broadcast state change to all connected clients
                 asyncio.run(manager.broadcast({
                     'state': current_state,
                     'last_tag_id': last_tag_id,
                     'timestamp': datetime.now().isoformat()
                 }))
-            
             time.sleep(0.1)  # Small delay to prevent high CPU usage
-            
         except Exception as e:
             print(f"Error processing camera feed: {e}")
             time.sleep(1)
