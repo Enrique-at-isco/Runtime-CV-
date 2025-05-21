@@ -32,7 +32,17 @@ def detect_available_cameras() -> List[int]:
     """Detect all available cameras on the system."""
     available_cameras = []
     for i in range(10):  # Check first 10 camera indices
-        cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)  # Use DirectShow on Windows
+        # Try different backends based on platform
+        try:
+            # Try V4L2 first (Linux)
+            cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
+            if not cap.isOpened():
+                # Try DirectShow (Windows)
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+        except:
+            # If both fail, try default backend
+            cap = cv2.VideoCapture(i)
+            
         if cap.isOpened():
             ret, frame = cap.read()
             if ret:
@@ -69,7 +79,17 @@ def initialize_camera(camera_index: Optional[int] = None) -> bool:
         else:
             camera_id = camera_index
         
-        camera = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
+        # Try different backends based on platform
+        try:
+            # Try V4L2 first (Linux)
+            camera = cv2.VideoCapture(camera_id, cv2.CAP_V4L2)
+            if not camera.isOpened():
+                # Try DirectShow (Windows)
+                camera = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
+        except:
+            # If both fail, try default backend
+            camera = cv2.VideoCapture(camera_id)
+            
         if not camera.isOpened():
             raise Exception(f"Could not open camera {camera_id}")
         

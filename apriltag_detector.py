@@ -74,7 +74,19 @@ class ArUcoStateDetector:
 
     def setup_camera(self):
         """Set up camera with optimal parameters for performance."""
-        self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
+        # Try different backends based on platform
+        try:
+            # Try V4L2 first (Linux)
+            self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_V4L2)
+            if not self.cap.isOpened():
+                # Try DirectShow (Windows)
+                self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
+        except:
+            # If both fail, try default backend
+            self.cap = cv2.VideoCapture(self.camera_id)
+        
+        if not self.cap.isOpened():
+            raise RuntimeError(f"Failed to open camera {self.camera_id}")
         
         # Set reduced resolution
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_size[0])
