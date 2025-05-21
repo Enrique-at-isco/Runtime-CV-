@@ -12,6 +12,10 @@ from fastapi.responses import StreamingResponse
 import os
 import socket
 from apriltag_detector import ArUcoStateDetector
+import cv2
+import numpy as np
+import time
+import asyncio
 
 app = FastAPI()
 
@@ -24,11 +28,155 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-# Initialize detector
-detector = ArUcoStateDetector()
+def detect_available_cameras() -> List[int]:
+    """Detect all available cameras on the system."""
+    available_cameras = []
+    for i in range(10):  # Check first 10 camera indices
+        cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)  # Use DirectShow on Windows
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret:
+                available_cameras.append(i)
+            cap.release()
+    return available_cameras
+
+def initialize_camera(camera_index: Optional[int] = None) -> bool:
+    """Initialize camera with the given ID or automatically select one if not specified."""
+    global camera, detector, camera_id
+    
+    try:
+        if camera is not None:
+            camera.release()
+        
+        if camera_index is None:
+            # Auto-detect available cameras
+            available_cameras = detect_available_cameras()
+            
+            if not available_cameras:
+                print("No cameras found!")
+                return False
+            
+            if len(available_cameras) == 1:
+                # If only one camera is available, use it automatically
+                camera_id = available_cameras[0]
+                print(f"Automatically selected camera {camera_id}")
+            else:
+                # If multiple cameras are available, use the first one by default
+                # The user can change it later through the API
+                camera_id = available_cameras[0]
+                print(f"Multiple cameras found: {available_cameras}")
+                print(f"Using camera {camera_id} by default. Use /api/camera/select/{camera_id} to change.")
+        else:
+            camera_id = camera_index
+        
+        camera = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
+        if not camera.isOpened():
+            raise Exception(f"Could not open camera {camera_id}")
+        
+        detector = ArUcoStateDetector(camera)
+        return True
+    except Exception as e:
+        print(f"Error initializing camera: {e}")
+        return False
+
+# Initialize camera and detector
+camera = None
+detector = None
+camera_id = None
 
 # Equipment name storage
 EQUIPMENT_NAME_FILE = "equipment_name.txt"
+
+# Service discovery
+SERVICE_REGISTRY_FILE = "data/service_registry.json"
+
+# Global variables
+current_state = 'IDLE'
+last_tag_id = None
+state_start_time = None
+
+# WebSocket connection manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            await connection.send_json(message)
+
+manager = ConnectionManager()
+
+def get_service_registry() -> Dict:
+    """Get the current service registry."""
+    try:
+        if os.path.exists(SERVICE_REGISTRY_FILE):
+            with open(SERVICE_REGISTRY_FILE, 'r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"services": []}
+
+def save_service_registry(registry: Dict) -> None:
+    """Save the service registry."""
+    os.makedirs(os.path.dirname(SERVICE_REGISTRY_FILE), exist_ok=True)
+    with open(SERVICE_REGISTRY_FILE, 'w') as f:
+        json.dump(registry, f, indent=2)
+
+@app.get("/api/discovery/register")
+async def register_service():
+    """Register this service in the cluster."""
+    try:
+        registry = get_service_registry()
+        service_info = {
+            "id": socket.gethostname(),
+            "ip": get_ip(),
+            "port": 8000,
+            "name": get_equipment_name(),
+            "last_seen": datetime.now().isoformat()
+        }
+        
+        # Update or add service
+        services = registry.get("services", [])
+        for i, service in enumerate(services):
+            if service["id"] == service_info["id"]:
+                services[i] = service_info
+                break
+        else:
+            services.append(service_info)
+        
+        registry["services"] = services
+        save_service_registry(registry)
+        return service_info
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.get("/api/discovery/services")
+async def list_services():
+    """List all registered services in the cluster."""
+    try:
+        registry = get_service_registry()
+        # Filter out services that haven't been seen in the last 5 minutes
+        now = datetime.now()
+        active_services = [
+            service for service in registry.get("services", [])
+            if (now - datetime.fromisoformat(service["last_seen"])).total_seconds() < 300
+        ]
+        return {"services": active_services}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 def get_equipment_name() -> str:
     """Get the current equipment name."""
@@ -80,7 +228,16 @@ def get_ip():
     except:
         return "localhost"
 
-# Print URL on startup
+def save_state_change(state: str, duration: float):
+    """Save state change to database."""
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute('''
+        INSERT INTO state_changes (timestamp, state, duration)
+        VALUES (?, ?, ?)
+    ''', (datetime.now().isoformat(), state, duration))
+    db.commit()
+
 @app.on_event("startup")
 async def startup_event():
     ip = get_ip()
@@ -88,6 +245,15 @@ async def startup_event():
     print("\n" + "="*50)
     print(f"=== Server is running! Access it at: {url} ===")
     print("="*50 + "\n")
+    
+    # Initialize camera on startup
+    if not initialize_camera():
+        print("Warning: Failed to initialize camera. The application will start without camera support.")
+    
+    # Start camera processing thread
+    import threading
+    camera_thread = threading.Thread(target=process_camera_feed, daemon=True)
+    camera_thread.start()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -149,7 +315,7 @@ def get_state_counts(start_time: datetime, end_time: datetime) -> Dict:
 
 @app.get("/")
 async def root():
-    return FileResponse("templates/index.html")
+    return FileResponse("static/index.html")
 
 @app.get("/api/metrics/{period}")
 async def get_metrics(period: str):
@@ -180,7 +346,7 @@ async def get_metrics(period: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
+    await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_text()
@@ -210,7 +376,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         "last_tag_id": None
                     })
     except WebSocketDisconnect:
-        print("Client disconnected")
+        manager.disconnect(websocket)
 
 @app.post("/api/clear_data")
 async def clear_data():
@@ -257,8 +423,8 @@ async def export_states():
 async def get_available_cameras():
     """Get list of available cameras."""
     try:
-        cameras = ArUcoStateDetector.get_available_cameras()
-        return {"cameras": cameras}
+        cameras = detect_available_cameras()
+        return {"cameras": [{"id": i, "name": f"Camera {i}"} for i in cameras]}
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -269,8 +435,12 @@ async def get_available_cameras():
 async def select_camera(camera_id: int):
     """Select a camera by ID."""
     try:
-        detector.initialize_camera(camera_id)
-        return {"status": "success", "camera_info": detector.get_camera_info()}
+        if initialize_camera(camera_id):
+            return {"status": "success", "camera_info": detector.get_camera_info()}
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Could not initialize camera {camera_id}"}
+        )
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -281,9 +451,57 @@ async def select_camera(camera_id: int):
 async def get_camera_info():
     """Get information about the current camera."""
     try:
+        if detector is None:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No camera initialized"}
+            )
         return detector.get_camera_info()
     except Exception as e:
         return JSONResponse(
             status_code=500,
             content={"error": str(e)}
-        ) 
+        )
+
+def process_camera_feed():
+    global current_state, last_tag_id, state_start_time
+    
+    while True:
+        if camera is None or not camera.isOpened():
+            time.sleep(1)
+            continue
+        
+        try:
+            ret, frame = camera.read()
+            if not ret:
+                continue
+            
+            # Process frame with ArUco detector
+            state, tag_id = detector.detect_state(frame)
+            
+            # Update state if changed
+            if state != current_state:
+                if state_start_time is not None:
+                    duration = int((datetime.now() - state_start_time).total_seconds())
+                    save_state_change(current_state, duration)
+                
+                current_state = state
+                state_start_time = datetime.now()
+                last_tag_id = tag_id
+                
+                # Broadcast state change to all connected clients
+                asyncio.run(manager.broadcast({
+                    'state': current_state,
+                    'last_tag_id': last_tag_id,
+                    'timestamp': datetime.now().isoformat()
+                }))
+            
+            time.sleep(0.1)  # Small delay to prevent high CPU usage
+            
+        except Exception as e:
+            print(f"Error processing camera feed: {e}")
+            time.sleep(1)
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=8000) 

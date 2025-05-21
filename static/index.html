@@ -5,20 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CNC Runtime Dashboard</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
         <header>
-            <div class="theme-toggle">
-                <label class="switch">
-                    <input type="checkbox" id="themeToggle">
-                    <span class="slider round"></span>
-                </label>
-                <span class="theme-label">Dark Mode</span>
-            </div>
             <div class="header-content">
-                <h1>CNC Runtime Dashboard</h1>
+                <div class="header-left">
+                    <button id="settingsBtn" class="settings-btn" onclick="document.getElementById('settingsModal').classList.add('show')">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <h1>CNC Runtime Dashboard</h1>
+                </div>
                 <div class="header-buttons">
                     <button id="exportDataBtn" class="export-data-btn" onclick="exportStateData()">Export State Data</button>
                     <button id="generateReportBtn" class="generate-report-btn">Generate Report</button>
@@ -175,6 +174,65 @@
                         <!-- Events will be populated here -->
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <span class="close-modal" onclick="document.getElementById('settingsModal').classList.remove('show')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h3>Appearance</h3>
+                    <div class="setting-item">
+                        <label for="themeToggle">Dark Mode:</label>
+                        <label class="switch">
+                            <input type="checkbox" id="themeToggle">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Equipment Settings</h3>
+                    <div class="setting-item">
+                        <label for="equipmentName">Equipment Name:</label>
+                        <input type="text" id="equipmentName" class="setting-input">
+                        <button id="saveEquipmentName" class="save-btn">Save</button>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Camera Settings</h3>
+                    <div class="setting-item">
+                        <label for="cameraSelect">Select Camera:</label>
+                        <select id="cameraSelect" class="setting-input">
+                            <option value="">Loading cameras...</option>
+                        </select>
+                        <button id="saveCamera" class="save-btn">Save</button>
+                    </div>
+                    <div id="cameraInfo" class="camera-info">
+                        <!-- Camera info will be displayed here -->
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Display Settings</h3>
+                    <div class="setting-item">
+                        <label for="refreshInterval">Data Refresh Interval (seconds):</label>
+                        <input type="number" id="refreshInterval" class="setting-input" min="1" max="60" value="10">
+                        <button id="saveRefreshInterval" class="save-btn">Save</button>
+                    </div>
+                    <div class="setting-item">
+                        <label for="timeFormat">Time Format:</label>
+                        <select id="timeFormat" class="setting-input">
+                            <option value="12">12-hour</option>
+                            <option value="24">24-hour</option>
+                        </select>
+                        <button id="saveTimeFormat" class="save-btn">Save</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
