@@ -379,105 +379,127 @@ async function fetchTimelineData() {
 // Update chronograph timeline with state data
 function updateChronograph(stateData) {
     const timeline = document.getElementById('chronographTimeline');
-    if (!timeline) return;
-
-    // Clear existing timeline
     timeline.innerHTML = '';
-
+    
     // Get current time in CST
     const now = new Date();
-    const cstOffset = -6; // CST is UTC-6
-    const cstTime = new Date(now.getTime() + (cstOffset * 60 * 60 * 1000));
-
-    // Set workday window (7 AM to 5 PM)
-    const workdayStart = new Date(cstTime);
-    workdayStart.setHours(7, 0, 0, 0);
-    const workdayEnd = new Date(cstTime);
-    workdayEnd.setHours(17, 0, 0, 0);
-
-    // Calculate total duration
-    const totalDuration = workdayEnd - workdayStart;
-
-    // If current time is before 7 AM, add grey bar
-    if (cstTime < workdayStart) {
-        const beforeWorkSegment = document.createElement('div');
-        beforeWorkSegment.className = 'timeline-segment no-data';
-        beforeWorkSegment.style.width = '100%';
-        beforeWorkSegment.title = 'Outside work hours (7 AM - 5 PM)';
-        timeline.appendChild(beforeWorkSegment);
-        return;
-    }
-
-    // If no data or empty array, show grey bar
-    if (!stateData || stateData.length === 0) {
+    const cstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+    
+    // Calculate today's window
+    const startTime = new Date(now);
+    startTime.setHours(7, 0, 0, 0);
+    const endTime = new Date(now);
+    endTime.setHours(17, 0, 0, 0);
+    const totalDuration = endTime - startTime;
+    
+    // If it's before 7 AM, show grey bar
+    if (cstNow.getHours() < 7) {
         const noDataSegment = document.createElement('div');
         noDataSegment.className = 'timeline-segment no-data';
         noDataSegment.style.width = '100%';
-        noDataSegment.title = 'No data available';
+        noDataSegment.title = 'Before work hours (7 AM CST)';
         timeline.appendChild(noDataSegment);
         return;
     }
-
+    
+    if (!stateData || !stateData.length) {
+        const noDataSegment = document.createElement('div');
+        noDataSegment.className = 'timeline-segment no-data';
+        noDataSegment.style.width = '100%';
+        timeline.appendChild(noDataSegment);
+        return;
+    }
+    
     // Sort data chronologically
-    const sortedData = [...stateData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-    // Filter data to only include today's workday events
-    const filteredData = sortedData.filter(event => {
-        const eventTime = new Date(event.timestamp);
-        return eventTime >= workdayStart && eventTime <= workdayEnd;
+    const sortedData = [...stateData].sort((a, b) => 
+        new Date(a.timestamp) - new Date(b.timestamp)
+    );
+    
+    // Filter to only include today's workday events
+    const filteredData = sortedData.filter(entry => {
+        const entryTime = new Date(entry.timestamp);
+        // Convert entry time to CST for comparison
+        const entryCst = new Date(entryTime.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+        const entryHour = entryCst.getHours();
+        return entryHour >= 7 && entryHour < 17 && 
+               entryTime.toDateString() === now.toDateString();
     });
-
-    // If no filtered data, show grey bar
+    
     if (filteredData.length === 0) {
         const noDataSegment = document.createElement('div');
         noDataSegment.className = 'timeline-segment no-data';
         noDataSegment.style.width = '100%';
-        noDataSegment.title = 'No data for today\'s work hours';
         timeline.appendChild(noDataSegment);
         return;
     }
-
-    // Create timeline segments
-    let lastEndTime = workdayStart;
-    filteredData.forEach((event, index) => {
-        const eventTime = new Date(event.timestamp);
+    
+    let lastEndTime = startTime;
+    let segments = [];
+    
+    // Create all segments first
+    filteredData.forEach((entry, index) => {
+        const currentTime = new Date(entry.timestamp);
+        const adjustedCurrentTime = new Date(Math.max(currentTime, startTime));
         
-        // Add gap segment if there's a gap between events
-        if (eventTime > lastEndTime) {
-            const gapDuration = eventTime - lastEndTime;
-            const gapWidth = (gapDuration / totalDuration) * 100;
+        // Create gap segment if needed
+        if (adjustedCurrentTime > lastEndTime) {
             const gapSegment = document.createElement('div');
             gapSegment.className = 'timeline-segment no-data';
+            const gapWidth = ((adjustedCurrentTime - lastEndTime) / totalDuration) * 100;
             gapSegment.style.width = `${gapWidth}%`;
-            gapSegment.title = `No data from ${lastEndTime.toLocaleTimeString()} to ${eventTime.toLocaleTimeString()}`;
-            timeline.appendChild(gapSegment);
+            segments.push(gapSegment);
         }
-
-        // Add event segment
-        const nextEvent = filteredData[index + 1];
-        const endTime = nextEvent ? new Date(nextEvent.timestamp) : Math.min(workdayEnd, cstTime);
-        const duration = endTime - eventTime;
-        const width = (duration / totalDuration) * 100;
-
+        
+        // Create state segment
         const segment = document.createElement('div');
-        segment.className = `timeline-segment ${event.state.toLowerCase()}`;
+        segment.className = `timeline-segment ${entry.state.toLowerCase()}`;
+        
+        // Calculate segment width based on the event's duration or up to current time for the last segment
+        const duration = entry.duration * 1000; // Convert seconds to milliseconds
+        const segmentEndTime = new Date(adjustedCurrentTime.getTime() + duration);
+        
+        // For the last state, extend it to the current time if it's the current state
+        const isLastEntry = index === filteredData.length - 1;
+        const adjustedEndTime = isLastEntry && entry.state === currentState ?
+            new Date(Math.min(now, endTime)) :
+            new Date(Math.min(segmentEndTime, endTime));
+        
+        const width = ((adjustedEndTime - adjustedCurrentTime) / totalDuration) * 100;
         segment.style.width = `${width}%`;
-        segment.title = `${event.state} from ${eventTime.toLocaleTimeString()} to ${endTime.toLocaleTimeString()} (${formatDuration(duration)})`;
-        timeline.appendChild(segment);
-
-        lastEndTime = endTime;
+        
+        // Add tooltip information
+        const tooltipTime = adjustedCurrentTime.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'America/Chicago'
+        });
+        const tooltipDuration = isLastEntry && entry.state === currentState ?
+            formatDuration((now - adjustedCurrentTime) / 1000) :
+            formatDuration(entry.duration);
+        segment.title = `${entry.state}\nTime: ${tooltipTime}\nDuration: ${tooltipDuration}`;
+        
+        segments.push(segment);
+        lastEndTime = adjustedEndTime;
     });
-
-    // Add final gap if needed
-    if (lastEndTime < Math.min(workdayEnd, cstTime)) {
-        const finalGapDuration = Math.min(workdayEnd, cstTime) - lastEndTime;
-        const finalGapWidth = (finalGapDuration / totalDuration) * 100;
+    
+    // Add final gap segment if needed (up to current time or end time)
+    if (lastEndTime < now && now < endTime) {
         const finalGapSegment = document.createElement('div');
-        finalGapSegment.className = 'time-segment no-data';
-        finalGapSegment.style.width = `${finalGapWidth}%`;
-        finalGapSegment.title = `No data from ${lastEndTime.toLocaleTimeString()} to ${Math.min(workdayEnd, cstTime).toLocaleTimeString()}`;
-        timeline.appendChild(finalGapSegment);
+        finalGapSegment.className = 'timeline-segment no-data';
+        const gapWidth = ((now - lastEndTime) / totalDuration) * 100;
+        finalGapSegment.style.width = `${gapWidth}%`;
+        segments.push(finalGapSegment);
+    } else if (lastEndTime < endTime) {
+        const finalGapSegment = document.createElement('div');
+        finalGapSegment.className = 'timeline-segment no-data';
+        const gapWidth = ((endTime - lastEndTime) / totalDuration) * 100;
+        finalGapSegment.style.width = `${gapWidth}%`;
+        segments.push(finalGapSegment);
     }
+    
+    // Append all segments in order
+    segments.forEach(segment => timeline.appendChild(segment));
 }
 
 // Update state change log based on time period
@@ -487,29 +509,10 @@ async function updateStateChangeLog(period) {
     
     try {
         const response = await fetch(`/api/events/${period}?state=${stateFilter}&limit=${limitFilter}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
         const events = await response.json();
         
         const tbody = document.getElementById('events-list');
-        if (!tbody) {
-            console.error('Events list table body not found');
-            return;
-        }
-        
         tbody.innerHTML = '';
-        
-        if (!events || events.length === 0) {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td colspan="4" style="text-align: center; padding: 20px;">
-                    No state changes recorded for this period
-                </td>
-            `;
-            tbody.appendChild(row);
-            return;
-        }
         
         // Sort events in reverse chronological order (newest first)
         const sortedEvents = [...events].sort((a, b) => 
@@ -518,18 +521,8 @@ async function updateStateChangeLog(period) {
         
         sortedEvents.forEach(event => {
             const row = document.createElement('tr');
-            const timestamp = new Date(event.timestamp);
-            const formattedTime = timestamp.toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: true
-            });
-            
             row.innerHTML = `
-                <td>${formattedTime}</td>
+                <td>${new Date(event.timestamp).toLocaleString()}</td>
                 <td><span class="state-badge ${event.state.toLowerCase()}">${event.state}</span></td>
                 <td class="duration-cell">${formatDuration(event.duration)}</td>
                 <td>${event.description || '-'}</td>
@@ -538,16 +531,6 @@ async function updateStateChangeLog(period) {
         });
     } catch (error) {
         console.error('Error updating state change log:', error);
-        const tbody = document.getElementById('events-list');
-        if (tbody) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="4" style="text-align: center; padding: 20px; color: var(--error-color);">
-                        Error loading state changes. Please try again.
-                    </td>
-                </tr>
-            `;
-        }
     }
 }
 
@@ -688,19 +671,27 @@ function handleTimeScaleChange(period) {
 }
 
 // Initialize WebSocket connection when page loads
-document.addEventListener('DOMContentLoaded', async () => {
-    // Initialize charts
+document.addEventListener('DOMContentLoaded', () => {
     initializeCharts();
+    updateMetrics(currentPeriod);
     
     // Initialize WebSocket connection
     initializeWebSocket();
     
-    // Initialize settings
-    await initializeSettings();
+    // Add click handlers for time scale tabs
+    document.querySelector('.time-scale-tabs').addEventListener('click', (event) => {
+        if (event.target.classList.contains('tab-btn')) {
+            handleTimeScaleChange(event.target.dataset.period);
+        }
+    });
     
-    // Start periodic updates
-    startIncrementalUpdates();
-    startTimelineUpdates();
+    // Add event listeners for log filters
+    document.getElementById('stateFilter').addEventListener('change', () => updateStateChangeLog(currentPeriod));
+    document.getElementById('limitFilter').addEventListener('change', () => updateStateChangeLog(currentPeriod));
+    document.getElementById('refreshLog').addEventListener('click', () => updateStateChangeLog(currentPeriod));
+
+    // Initialize theme
+    initializeTheme();
 });
 
 // Initialize theme
@@ -898,21 +889,21 @@ async function exportStateData() {
 }
 
 // Report Generation Functions
-const reportModal = document.getElementById('reportModal');
+const modal = document.getElementById('reportModal');
 const generateReportBtn = document.getElementById('generateReportBtn');
-const reportCloseBtn = reportModal.querySelector('.close-modal');
+const closeModal = document.querySelector('.close-modal');
 
 generateReportBtn.addEventListener('click', () => {
-    reportModal.classList.add('show');
+    modal.style.display = 'block';
 });
 
-reportCloseBtn.addEventListener('click', () => {
-    reportModal.classList.remove('show');
+closeModal.addEventListener('click', () => {
+    modal.style.display = 'none';
 });
 
 window.addEventListener('click', (event) => {
-    if (event.target === reportModal) {
-        reportModal.classList.remove('show');
+    if (event.target === modal) {
+        modal.style.display = 'none';
     }
 });
 
@@ -924,7 +915,7 @@ document.querySelectorAll('.report-period-btn').forEach(button => {
             await generateReport(period);
         } finally {
             button.classList.remove('loading');
-            reportModal.classList.remove('show');
+            modal.style.display = 'none';
         }
     });
 });
@@ -1287,4830 +1278,440 @@ async function generateReport(period) {
             `Total Idle Time: ${formatDuration(totalIdle)}`,
             `Total Error Time: ${formatDuration(totalError)}`,
             `Overall Efficiency: ${efficiency}%`
-        ]);
-
-        // Daily Timelines Section
-        currentY = await drawDailyTimelines(doc, currentY, period);
+        ], 20, currentY, {
+            lineHeightFactor: 1.5
+        });
+        currentY += 40;
 
         // State Distribution Section
+        if (currentY > 220) {
+            doc.addPage();
+            currentY = 20;
+        }
+
         doc.setFontSize(16);
         doc.text('State Distribution', 20, currentY);
-        currentY += 10;
+        currentY += 20;
 
-        // Pie Chart
+        // Draw bar chart for state distribution
+        const barStartX = 20;
+        const barStartY = currentY;
+        const barWidth = 170;
+        const barHeight = 25;
+        const labelY = barStartY + barHeight + 15;
+
+        if (totalTime > 0) {
+            // Calculate percentages
+            const runningPercentage = ((totalRuntime / totalTime) * 100).toFixed(1);
+            const idlePercentage = ((totalIdle / totalTime) * 100).toFixed(1);
+            const errorPercentage = ((totalError / totalTime) * 100).toFixed(1);
+
+            // Draw the segments
+            let currentX = barStartX;
+
+            // Running segment (Green)
+            if (totalRuntime > 0) {
+                const runningWidth = (totalRuntime / totalTime) * barWidth;
+                doc.setFillColor(46, 204, 113);
+                doc.rect(currentX, barStartY, runningWidth, barHeight, 'F');
+                
+                if (runningWidth > 30) {
+                    doc.setTextColor(255);
+                    doc.setFontSize(10);
+                    doc.text(`${runningPercentage}%`, currentX + runningWidth/2 - 8, barStartY + barHeight/2 + 3);
+                }
+                currentX += runningWidth;
+            }
+
+            // Idle segment (Yellow)
+            if (totalIdle > 0) {
+                const idleWidth = (totalIdle / totalTime) * barWidth;
+                doc.setFillColor(241, 196, 15);
+                doc.rect(currentX, barStartY, idleWidth, barHeight, 'F');
+                
+                if (idleWidth > 30) {
+                    doc.setTextColor(0);
+                    doc.setFontSize(10);
+                    doc.text(`${idlePercentage}%`, currentX + idleWidth/2 - 8, barStartY + barHeight/2 + 3);
+                }
+                currentX += idleWidth;
+            }
+
+            // Error segment (Red)
+            if (totalError > 0) {
+                const errorWidth = (totalError / totalTime) * barWidth;
+                doc.setFillColor(231, 76, 60);
+                doc.rect(currentX, barStartY, errorWidth, barHeight, 'F');
+                
+                if (errorWidth > 30) {
+                    doc.setTextColor(255);
+                    doc.setFontSize(10);
+                    doc.text(`${errorPercentage}%`, currentX + errorWidth/2 - 8, barStartY + barHeight/2 + 3);
+                }
+            }
+
+            // Add legend with durations
+            doc.setTextColor(0);
+            doc.setFontSize(10);
+            const legendY = labelY + 10;
+
+            // Running legend
+            doc.setFillColor(46, 204, 113);
+            doc.rect(barStartX, legendY, 8, 8, 'F');
+            doc.text(`Running: ${formatDuration(totalRuntime)} (${runningPercentage}%)`, barStartX + 12, legendY + 6);
+
+            // Idle legend
+            doc.setFillColor(241, 196, 15);
+            doc.rect(barStartX, legendY + 15, 8, 8, 'F');
+            doc.text(`Idle: ${formatDuration(totalIdle)} (${idlePercentage}%)`, barStartX + 12, legendY + 21);
+
+            // Error legend
+            doc.setFillColor(231, 76, 60);
+            doc.rect(barStartX, legendY + 30, 8, 8, 'F');
+            doc.text(`Error: ${formatDuration(totalError)} (${errorPercentage}%)`, barStartX + 12, legendY + 36);
+
+            currentY = legendY + 50;
+        } else {
+            // If no data, show empty bar
+            doc.setFillColor(200, 200, 200);
+            doc.rect(barStartX, barStartY, barWidth, barHeight, 'F');
+            doc.setTextColor(100);
+            doc.setFontSize(10);
+            doc.text('No Data', barStartX + barWidth/2 - 15, barStartY + barHeight/2 + 3);
+            currentY = barStartY + barHeight + 30;
+        }
+
+        // Add daily timelines for weekly report after state distribution
+        if (period === 'week') {
+            // Add a page break before daily timelines if we're close to the bottom
+            if (currentY > 220) {
+                doc.addPage();
+                currentY = 20;
+            }
+            currentY = await drawDailyTimelines(doc, currentY, period);
+        }
+
+        // Add a page break before Runtime Analysis if we're close to the bottom
+        if (currentY > 220) {
+            doc.addPage();
+            currentY = 20;
+        }
+
+        // Add extra spacing before Runtime Analysis
+        currentY += 20;
+
+        // Runtime Analysis Section
+        doc.setFontSize(16);
+        doc.setTextColor(0);
+        doc.text('Runtime Analysis', 20, currentY);
+        currentY += 20;
+
+        // Add runtime stats with durations
         doc.setFontSize(12);
-        doc.text('Pie Chart', 20, currentY);
+        const runtimeStats = [
+            ['Total Runtime', formatDuration(totalRuntime)],
+            ['Total Idle Time', formatDuration(totalIdle)],
+            ['Total Error Time', formatDuration(totalError)],
+            ['Efficiency', `${efficiency}%`],
+            ['Peak Performance', data.peak_hour ? `${data.peak_hour}:00` : 'N/A']
+        ];
+
+        doc.autoTable({
+            body: runtimeStats,
+            startY: currentY,
+            theme: 'plain',
+            styles: {
+                fontSize: 11,
+                cellPadding: 4
+            },
+            columnStyles: {
+                0: { fontStyle: 'bold', cellWidth: 80 },
+                1: { cellWidth: 90 }
+            }
+        });
+
+        currentY = doc.autoTable.previous.finalY + 20;
+
+        // Performance Trends Section
+        doc.setFontSize(16);
+        doc.text('Performance Trends', 20, currentY);
         currentY += 10;
 
-        if (metricsChart) {
-            const pieChartData = metricsChart.data.datasets[0].data;
-            const pieChartLabels = ['Running', 'Idle', 'Error'];
-            const pieChartColors = [
-                '#2ecc71', // Running - Green
-                '#f1c40f', // Idle - Yellow
-                '#e74c3c'  // Error - Red
-            ];
+        // Add trend stats with durations
+        const trendStats = [
+            ['Best Day', data.best_day || 'N/A'],
+            ['Average Daily Runtime', formatDuration(totalRuntime / (data.days_in_period || 1))],
+            ['Average Daily Idle', formatDuration(totalIdle / (data.days_in_period || 1))],
+            ['Average Daily Error', formatDuration(totalError / (data.days_in_period || 1))],
+            ['Weekly Efficiency', `${efficiency}%`]
+        ];
 
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            pieChartLabels.forEach((label, index) => {
-                doc.text(`${label}: ${formatDuration(pieChartData[index])}`, 20, currentY);
-                currentY += 5;
+        doc.autoTable({
+            body: trendStats,
+            startY: currentY,
+            theme: 'plain',
+            styles: {
+                fontSize: 11,
+                cellPadding: 4
+            },
+            columnStyles: {
+                0: { fontStyle: 'bold', cellWidth: 80 },
+                1: { cellWidth: 90 }
+            }
+        });
+
+        currentY = doc.autoTable.previous.finalY + 20;
+
+        // Hourly Analysis
+        if (data.hourly_metrics) {
+            doc.addPage();
+            doc.setFontSize(16);
+            doc.text('Hourly Analysis', 20, 20);
+            
+            const hourlyData = [];
+            let totalRunningTime = 0;
+            let totalIdleTime = 0;
+            let totalErrorTime = 0;
+            let totalWorkingHours = 0;
+
+            // First pass: collect all hours between 7 AM and 5 PM
+            const workHours = {};
+            for (let hour = 7; hour <= 17; hour++) {
+                workHours[hour] = {
+                    running_duration: 0,
+                    idle_duration: 0,
+                    error_duration: 0
+                };
+            }
+
+            // Process timeline data to get accurate state durations for each hour
+            if (timelineData && timelineData.length > 0) {
+                const sortedEvents = [...timelineData].sort((a, b) => 
+                    new Date(a.timestamp) - new Date(b.timestamp)
+                );
+
+                for (let i = 0; i < sortedEvents.length; i++) {
+                    const event = sortedEvents[i];
+                    const eventTime = new Date(event.timestamp);
+                    const eventHour = eventTime.getHours();
+                    
+                    // Skip if outside work hours
+                    if (eventHour < 7 || eventHour > 17) continue;
+                    
+                    // Calculate duration until next event or end of hour
+                    let duration = event.duration;
+                    if (duration) {
+                        // Add the duration to the appropriate state counter
+                        switch (event.state) {
+                            case 'RUNNING':
+                                workHours[eventHour].running_duration += duration;
+                                break;
+                            case 'IDLE':
+                                workHours[eventHour].idle_duration += duration;
+                                break;
+                            case 'ERROR':
+                                workHours[eventHour].error_duration += duration;
+                                break;
+                        }
+                    }
+                }
+            }
+
+            // Process each work hour
+            for (const [hour, metrics] of Object.entries(workHours)) {
+                // Calculate total time for efficiency
+                const hourTotal = metrics.running_duration + metrics.idle_duration + metrics.error_duration;
+                const efficiency = hourTotal > 0 ? 
+                    ((metrics.running_duration / hourTotal) * 100).toFixed(1) : 
+                    '0.0';
+
+                // Add to totals
+                totalRunningTime += metrics.running_duration;
+                totalIdleTime += metrics.idle_duration;
+                totalErrorTime += metrics.error_duration;
+                if (hourTotal > 0) totalWorkingHours++;
+
+                hourlyData.push([
+                    `${hour}:00`,
+                    formatDuration(metrics.running_duration),
+                    formatDuration(metrics.idle_duration),
+                    formatDuration(metrics.error_duration),
+                    `${efficiency}%`
+                ]);
+            }
+
+            // Sort hourly data by hour
+            hourlyData.sort((a, b) => {
+                const hourA = parseInt(a[0]);
+                const hourB = parseInt(b[0]);
+                return hourA - hourB;
+            });
+            
+            doc.autoTable({
+                head: [['Hour', 'Runtime', 'Idle Time', 'Error Time', 'Efficiency']],
+                body: hourlyData,
+                startY: 30,
+                margin: { top: 30 },
+                styles: {
+                    fontSize: 9,
+                    textColor: [0, 0, 0]
+                },
+                columnStyles: {
+                    0: { cellWidth: 30 }, // Hour
+                    1: { cellWidth: 35 }, // Runtime
+                    2: { cellWidth: 35 }, // Idle Time
+                    3: { cellWidth: 35 }, // Error Time
+                    4: { cellWidth: 35 }  // Efficiency
+                },
+                didParseCell: function(data) {
+                    // Add color hints to efficiency column
+                    if (data.column.index === 4 && data.section === 'body') {
+                        const efficiency = parseFloat(data.cell.raw);
+                        if (!isNaN(efficiency)) {
+                            if (efficiency >= 80) {
+                                data.cell.styles.textColor = [46, 204, 113]; // Green for high efficiency
+                            } else if (efficiency >= 50) {
+                                data.cell.styles.textColor = [241, 196, 15]; // Yellow for medium efficiency
+                            } else {
+                                data.cell.styles.textColor = [231, 76, 60]; // Red for low efficiency
+                            }
+                        }
+                    }
+                }
             });
 
+            // Add summary statistics
+            const summaryY = doc.autoTable.previous.finalY + 20;
             doc.setFontSize(12);
             doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            pieChartLabels.forEach((label, index) => {
-                doc.text(`${label}: ${pieChartData[index]}%`, 20, currentY);
-                currentY += 5;
+            
+            // Calculate average efficiency using total times
+            const totalTime = totalRunningTime + totalIdleTime + totalErrorTime;
+            const avgEfficiency = totalTime > 0 ? 
+                ((totalRunningTime / totalTime) * 100).toFixed(1) : 
+                '0.0';
+            
+            // Display summary
+            doc.text([
+                `Total Runtime: ${formatDuration(totalRunningTime)}`,
+                `Total Idle Time: ${formatDuration(totalIdleTime)}`,
+                `Total Error Time: ${formatDuration(totalErrorTime)}`,
+                `Average Efficiency: ${avgEfficiency}%`,
+                `Active Hours: ${totalWorkingHours} of ${Object.keys(workHours).length}`
+            ], 20, summaryY, {
+                lineHeightFactor: 1.5
             });
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text(`Total: ${formatDuration(totalTime)}`, 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text(`Efficiency: ${efficiency}%`, 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(10);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            currentY += 5;
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.text('Pie Chart', 20, currentY);
-            doc.setText
+        }
+
+        // Add State Change Log for today and week reports
+        if (period === 'today' || period === 'week') {
+            // Fetch state change log data without limit
+            const logResponse = await fetch(`/api/events/${period}?state=all`);
+            const logData = await logResponse.json();
+
+            if (logData && logData.length > 0) {
+                // Add new page for state change log
+                doc.addPage();
+                doc.setFontSize(16);
+                doc.text('State Change Log', 20, 20);
+
+                // Sort events in reverse chronological order (newest first)
+                const sortedEvents = [...logData].sort((a, b) => 
+                    new Date(b.timestamp) - new Date(a.timestamp)
+                );
+
+                // Prepare table data
+                const logTableData = sortedEvents.map(event => {
+                    const timestamp = new Date(event.timestamp);
+                    const formattedTime = timestamp.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true
+                    });
+
+                    return [
+                        formattedTime,
+                        event.state,
+                        formatDuration(event.duration),
+                        event.description || '-'
+                    ];
+                });
+
+                // Add the table with styling
+                doc.autoTable({
+                    head: [['Time', 'State', 'Duration', 'Description']],
+                    body: logTableData,
+                    startY: 30,
+                    margin: { top: 30 },
+                    styles: {
+                        fontSize: 9,
+                        textColor: [0, 0, 0] // Default text color for non-state columns
+                    },
+                    columnStyles: {
+                        0: { cellWidth: 50 }, // Time column
+                        1: { 
+                            cellWidth: 30,
+                            fillColor: [255, 255, 255], // Default background for state column
+                            textColor: [255, 255, 255] // White text for state column
+                        },
+                        2: { cellWidth: 30 }, // Duration column
+                        3: { cellWidth: 'auto' } // Description column
+                    },
+                    didParseCell: function(data) {
+                        // Only style the state column
+                        if (data.column.index === 1 && data.section === 'body') {
+                            const state = data.cell.raw;
+                            
+                            // Set background color based on state
+                            switch (state) {
+                                case 'RUNNING':
+                                    data.cell.styles.fillColor = [46, 204, 113]; // Solid green
+                                    break;
+                                case 'IDLE':
+                                    data.cell.styles.fillColor = [241, 196, 15]; // Solid yellow
+                                    break;
+                                case 'ERROR':
+                                    data.cell.styles.fillColor = [231, 76, 60]; // Solid red
+                                    break;
+                                default:
+                                    data.cell.styles.fillColor = [189, 195, 199]; // Solid gray for unknown states
+                            }
+                        }
+                    }
+                });
+
+                // Add note about the number of events shown
+                const totalEvents = logData.length;
+                doc.setFontSize(10);
+                doc.setTextColor(100);
+                doc.text(
+                    `Total state changes: ${totalEvents}`,
+                    20,
+                    doc.autoTable.previous.finalY + 10
+                );
+            }
+        }
+        
+        // Save the PDF
+        const fileName = `runtime-report-${period}-${currentDate.replace(/\//g, '-')}.pdf`;
+        doc.save(fileName);
+        
+    } catch (error) {
+        console.error('Error generating report:', error);
+        alert('Failed to generate report. Please try again.');
+    }
+}
+
+function formatPeriod(period) {
+    const periods = {
+        'today': 'Today',
+        'week': 'This Week',
+        'month': 'This Month',
+        'quarter': 'This Quarter',
+        'year': 'This Year'
+    };
+    return periods[period] || period;
+} 
