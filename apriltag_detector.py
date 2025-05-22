@@ -354,13 +354,35 @@ class ArUcoStateDetector:
             corners, ids, rejected = self.detector.detectMarkers(gray)
         else:
             corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
-        if ids is not None:
-            tag_id = ids[0][0]
-            print(f"[ArUco] Detected tag {tag_id}, state=RUNNING")
-            return "RUNNING", tag_id
+        state = "ERROR"
+        tag_id = None
+        movement = 0.0
+        if ids is not None and len(ids) > 0:
+            tag_id = int(ids[0][0])
+            # Draw bounding box
+            frame = cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            # Calculate movement
+            marker_corners = corners[0][0]
+            marker_center = np.mean(marker_corners, axis=0)
+            current_position = (float(marker_center[0]), float(marker_center[1]))
+            if self.last_position is not None:
+                movement = math.sqrt(
+                    (current_position[0] - self.last_position[0])**2 +
+                    (current_position[1] - self.last_position[1])**2
+                )
+            else:
+                movement = 0.0
+            self.last_position = current_position
+            # State logic
+            if movement > self.movement_threshold:
+                state = "RUNNING"
+            else:
+                state = "IDLE"
+            print(f"[ArUco] Detected tag {tag_id}, state={state}, movement={movement:.2f}")
         else:
-            print("[ArUco] No tag detected, state=IDLE")
-            return "IDLE", None
+            print("[ArUco] No tag detected, state=ERROR")
+            self.last_position = None
+        return state, tag_id, frame
 
     def __del__(self):
         """Cleanup when the object is destroyed."""

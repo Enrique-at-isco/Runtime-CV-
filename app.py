@@ -503,7 +503,7 @@ def process_camera_feed():
             if not ret:
                 continue
             # Process frame with ArUco detector
-            state, tag_id = detector.detect_state(frame)
+            state, tag_id, _ = detector.detect_state(frame)
             # Update state if changed
             if state != current_state:
                 print(f"[StateChange] State changed from {current_state} to {state}, tag_id={tag_id}")
@@ -535,12 +535,13 @@ def generate_frames():
             ret, frame = detector.cap.read()
             if not ret:
                 continue
+            # Get state, tag_id, and frame with bounding box
+            state, tag_id, frame = detector.detect_state(frame)
             # Draw state information on frame
-            state_text = f"State: {current_state}"
-            if last_tag_id is not None:
-                state_text += f" (Tag: {last_tag_id})"
+            state_text = f"State: {state}"
+            if tag_id is not None:
+                state_text += f" (Tag: {tag_id})"
             cv2.putText(frame, state_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            
             # Convert frame to JPEG
             ret, buffer = cv2.imencode('.jpg', frame)
             frame = buffer.tobytes()
