@@ -258,14 +258,22 @@ def get_ip():
     except:
         return "localhost"
 
-def save_state_change(state: str, duration: float):
-    """Save state change to database."""
+def save_state_change(state: str, duration: float, description: str = None, tag_id: int = None):
     db = get_db()
     cursor = db.cursor()
+    # Update the previous state's duration if duration > 0
+    if duration > 0:
+        cursor.execute('''
+            UPDATE state_changes
+            SET duration = ?
+            WHERE id = (SELECT id FROM state_changes ORDER BY timestamp DESC LIMIT 1)
+        ''', (duration,))
+        db.commit()
+    # Insert the new state (duration 0 for now, will be updated on next state change)
     cursor.execute('''
-        INSERT INTO state_changes (timestamp, state, duration)
-        VALUES (?, ?, ?)
-    ''', (datetime.now().isoformat(), state, duration))
+        INSERT INTO state_changes (timestamp, state, description, tag_id, duration)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (datetime.now().isoformat(), state, description, tag_id, 0.0))
     db.commit()
 
 @app.on_event("startup")
@@ -560,6 +568,14 @@ async def get_camera_info():
             content={"error": str(e)}
         )
 
+def get_state_description(state: str) -> str:
+    descriptions = {
+        'RUNNING': 'Machine operating - Tag movement detected',
+        'IDLE': 'Machine idle - Tag stationary',
+        'ERROR': 'Error - No tag detected'
+    }
+    return descriptions.get(state, '')
+
 def process_camera_feed():
     global current_state, last_tag_id, state_start_time
     while True:
@@ -577,7 +593,7 @@ def process_camera_feed():
                 print(f"[StateChange] State changed from {current_state} to {state}, tag_id={tag_id}")
                 if state_start_time is not None:
                     duration = int((datetime.now() - state_start_time).total_seconds())
-                    save_state_change(current_state, duration)
+                    save_state_change(current_state, duration, get_state_description(current_state), last_tag_id)
                     print(f"[DB] Saved state {current_state} with duration {duration}s")
                 current_state = state
                 state_start_time = datetime.now()
