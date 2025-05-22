@@ -18,6 +18,7 @@ import time
 import asyncio
 import subprocess
 import sys
+from collections import defaultdict
 
 app = FastAPI()
 
@@ -349,7 +350,6 @@ async def root():
 @app.get("/api/metrics/{period}")
 async def get_metrics(period: str):
     now = datetime.now()
-    
     # Calculate start time based on period
     if period == "today":
         start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -361,17 +361,85 @@ async def get_metrics(period: str):
     elif period == "quarter":
         quarter_month = ((now.month - 1) // 3) * 3 + 1
         start_time = now.replace(month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "year":
+        start_time = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
     else:
         return JSONResponse(status_code=400, content={"error": "Invalid period"})
-    
+
     state_counts = get_state_counts(start_time, now)
-    
+    total_duration = sum(state_counts.values())
+    percentages = {k: round((v / total_duration * 100) if total_duration > 0 else 0, 1) for k, v in state_counts.items()}
+
+    # Hourly metrics for today
+    hourly_metrics = None
+    if period == "today":
+        hourly_metrics = defaultdict(lambda: {"RUNNING": 0, "IDLE": 0, "ERROR": 0})
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('''SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?)''', (start_time.isoformat(), now.isoformat()))
+        rows = cursor.fetchall()
+        for row in rows:
+            ts = datetime.fromisoformat(row['timestamp'])
+            hour = ts.hour
+            hourly_metrics[hour][row['state']] += float(row['duration'] or 0)
+        hourly_metrics = dict(hourly_metrics)
+
+    # Daily metrics for week/month/quarter/year
+    daily_metrics = None
+    if period in ["week", "month", "quarter", "year"]:
+        daily_metrics = defaultdict(lambda: {"RUNNING": 0, "IDLE": 0, "ERROR": 0})
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('''SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?)''', (start_time.isoformat(), now.isoformat()))
+        rows = cursor.fetchall()
+        for row in rows:
+            ts = datetime.fromisoformat(row['timestamp'])
+            day = ts.date().isoformat()
+            daily_metrics[day][row['state']] += float(row['duration'] or 0)
+        daily_metrics = dict(daily_metrics)
+
+    # Summary
+    summary = {
+        'total_runtime': state_counts['RUNNING'],
+        'best_day': None,
+        'avg_daily_runtime': 0,
+        'weekly_efficiency': percentages['RUNNING'],
+    }
+    if daily_metrics:
+        best_day = max(daily_metrics.items(), key=lambda x: x[1]['RUNNING'])[0] if daily_metrics else None
+        avg_daily_runtime = sum(day['RUNNING'] for day in daily_metrics.values()) / len(daily_metrics) if daily_metrics else 0
+        summary['best_day'] = best_day
+        summary['avg_daily_runtime'] = avg_daily_runtime
+
     return {
         "state_counts": state_counts,
+        "percentages": percentages,
+        "hourly_metrics": hourly_metrics,
+        "daily_metrics": daily_metrics,
+        "summary": summary,
         "period": period,
         "start_time": start_time.isoformat(),
         "end_time": now.isoformat()
     }
+
+@app.get("/api/events/today")
+async def get_events_today():
+    now = datetime.now()
+    start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute('''SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?) ORDER BY timestamp ASC''', (start_time.isoformat(), now.isoformat()))
+    rows = cursor.fetchall()
+    events = []
+    for row in rows:
+        events.append({
+            "timestamp": row['timestamp'],
+            "state": row['state'],
+            "duration": row['duration'],
+            "description": row['description'],
+            "tag_id": row['tag_id']
+        })
+    return events
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
