@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 from datetime import datetime, timedelta
@@ -524,6 +524,42 @@ def process_camera_feed():
         except Exception as e:
             print(f"Error processing camera feed: {e}")
             time.sleep(1)
+
+def generate_frames():
+    """Generate camera frames for streaming."""
+    while True:
+        if detector is None or detector.cap is None or not detector.cap.isOpened():
+            time.sleep(1)
+            continue
+        try:
+            ret, frame = detector.cap.read()
+            if not ret:
+                continue
+            # Draw state information on frame
+            state_text = f"State: {current_state}"
+            if last_tag_id is not None:
+                state_text += f" (Tag: {last_tag_id})"
+            cv2.putText(frame, state_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            # Convert frame to JPEG
+            ret, buffer = cv2.imencode('.jpg', frame)
+            frame = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        except Exception as e:
+            print(f"Error generating frame: {e}")
+            time.sleep(1)
+
+@app.get("/camera")
+async def camera_view():
+    """Serve the camera view page."""
+    return FileResponse("static/camera.html")
+
+@app.get("/video_feed")
+async def video_feed():
+    """Stream the camera feed."""
+    return StreamingResponse(generate_frames(),
+                            media_type="multipart/x-mixed-replace; boundary=frame")
 
 if __name__ == '__main__':
     import uvicorn
