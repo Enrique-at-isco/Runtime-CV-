@@ -354,9 +354,13 @@ class ArUcoStateDetector:
             corners, ids, rejected = self.detector.detectMarkers(gray)
         else:
             corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
-        # ... rest of your method ...
-        # For now, just return dummy values to avoid breaking the app
-        return "IDLE", None
+        if ids is not None:
+            tag_id = ids[0][0]
+            print(f"[ArUco] Detected tag {tag_id}, state=RUNNING")
+            return "RUNNING", tag_id
+        else:
+            print("[ArUco] No tag detected, state=IDLE")
+            return "IDLE", None
 
     def __del__(self):
         """Cleanup when the object is destroyed."""

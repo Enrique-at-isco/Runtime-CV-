@@ -506,9 +506,11 @@ def process_camera_feed():
             state, tag_id = detector.detect_state(frame)
             # Update state if changed
             if state != current_state:
+                print(f"[StateChange] State changed from {current_state} to {state}, tag_id={tag_id}")
                 if state_start_time is not None:
                     duration = int((datetime.now() - state_start_time).total_seconds())
                     save_state_change(current_state, duration)
+                    print(f"[DB] Saved state {current_state} with duration {duration}s")
                 current_state = state
                 state_start_time = datetime.now()
                 last_tag_id = tag_id
