@@ -440,13 +440,17 @@ async def get_events_today():
     rows = cursor.fetchall()
     events = []
     for row in rows:
-        events.append({
+        event = {
             "timestamp": row['timestamp'],
             "state": row['state'],
             "duration": row['duration'],
             "description": row['description'],
             "tag_id": row['tag_id']
-        })
+        }
+        print(f"[EVENT] {event}")
+        if event['duration'] == 0.0:
+            print(f"[WARNING] Zero duration event: {event}")
+        events.append(event)
     return events
 
 @app.websocket("/ws")
