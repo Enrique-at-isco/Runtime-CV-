@@ -924,4 +924,88 @@ canvas {
 
 [data-theme="dark"] .camera-info p {
     color: #e2e8f0;
+}
+
+/* Chronograph styles */
+#chronograph-container {
+    width: 100%;
+    padding: 20px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.timeline {
+    position: relative;
+    width: 100%;
+    height: 40px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+}
+
+.timeline-segment {
+    height: 100%;
+    transition: width 0.3s ease;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+}
+
+.timeline-segment.running {
+    background-color: #2ecc71;
+}
+
+.timeline-segment.idle {
+    background-color: #f1c40f;
+}
+
+.timeline-segment.error {
+    background-color: #e74c3c;
+}
+
+.timeline-segment.no-data {
+    background-color: #95a5a6;
+}
+
+.state-label {
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 4px;
+}
+
+.current-time-indicator {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: white;
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+    z-index: 2;
+}
+
+/* Tooltip styles */
+.timeline-segment:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: pre-line;
+    z-index: 3;
+    pointer-events: none;
 } 

@@ -314,192 +314,86 @@ function formatDuration(seconds) {
     }
 }
 
-// Initialize chronograph timeline
+// Initialize the chronograph
 function initializeChronograph() {
-    const timeline = document.getElementById('chronographTimeline');
-    const markers = document.getElementById('timeMarkers');
-    
+    const chronographContainer = document.getElementById('chronograph-container');
+    if (!chronographContainer) return;
+
     // Clear existing content
-    timeline.innerHTML = '';
-    markers.innerHTML = '';
+    chronographContainer.innerHTML = '';
     
-    // Add time markers (7 AM to 5 PM)
-    for (let hour = 7; hour <= 17; hour++) {
-        const marker = document.createElement('div');
-        marker.className = 'time-marker';
-        const displayHour = hour > 12 ? hour - 12 : hour;
-        const ampm = hour >= 12 ? 'PM' : 'AM';
-        marker.textContent = `${displayHour}:00 ${ampm}`;
-        markers.appendChild(marker);
-    }
+    // Create timeline container
+    const timeline = document.createElement('div');
+    timeline.id = 'timeline';
+    timeline.className = 'timeline';
+    chronographContainer.appendChild(timeline);
+
+    // Initial fetch of timeline data
+    fetchTimelineData();
 }
 
-// Fetch timeline data independently
+// Update the chronograph with new state data
+function updateChronograph(stateData) {
+    const timeline = document.getElementById('timeline');
+    if (!timeline) return;
+
+    // Clear existing content
+    timeline.innerHTML = '';
+
+    // Sort states by timestamp
+    stateData.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    // Create timeline segments
+    stateData.forEach((state, index) => {
+        const segment = document.createElement('div');
+        segment.className = `timeline-segment ${state.state.toLowerCase()}`;
+        
+        // Calculate width based on duration
+        const duration = state.duration || 0;
+        const width = Math.max(5, Math.min(100, duration / 60)); // Scale width, min 5%, max 100%
+        segment.style.width = `${width}%`;
+        
+        // Add tooltip with state info
+        const startTime = new Date(state.timestamp).toLocaleTimeString();
+        const endTime = new Date(new Date(state.timestamp).getTime() + duration * 1000).toLocaleTimeString();
+        segment.title = `${state.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${formatDuration(duration)}`;
+        
+        // Add state label if segment is wide enough
+        if (width > 10) {
+            const label = document.createElement('span');
+            label.className = 'state-label';
+            label.textContent = state.state;
+            segment.appendChild(label);
+        }
+        
+        timeline.appendChild(segment);
+    });
+
+    // Add current time indicator
+    const now = new Date();
+    const firstStateTime = new Date(stateData[0]?.timestamp || now);
+    const lastStateTime = new Date(stateData[stateData.length - 1]?.timestamp || now);
+    const totalDuration = (lastStateTime - firstStateTime) / 1000;
+    const currentPosition = ((now - firstStateTime) / 1000) / totalDuration * 100;
+
+    const indicator = document.createElement('div');
+    indicator.className = 'current-time-indicator';
+    indicator.style.left = `${Math.min(100, Math.max(0, currentPosition))}%`;
+    timeline.appendChild(indicator);
+}
+
+// Fetch timeline data from the server
 async function fetchTimelineData() {
     try {
-        // Fetch all states for today's workday with a large limit to get all events
-        const response = await fetch('/api/events/today?state=all&limit=1000');
+        const response = await fetch('/api/timeline');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const events = await response.json();
-        
-        // If we have a current state that's not in the events (newest state),
-        // add it to the events array with current duration
-        if (currentState && stateStartTime) {
-            const now = new Date();
-            const duration = Math.floor((now - stateStartTime) / 1000); // Convert to seconds
-            
-            // Only add if it's actually a new state
-            const lastEvent = events[events.length - 1];
-            if (!lastEvent || new Date(lastEvent.timestamp) < stateStartTime) {
-                events.push({
-                    timestamp: stateStartTime.toISOString(),
-                    state: currentState,
-                    duration: duration,
-                    description: 'Current state'
-                });
-            }
-        }
-        
-        updateChronograph(events);
+        const data = await response.json();
+        updateChronograph(data);
     } catch (error) {
         console.error('Error fetching timeline data:', error);
-        // Show error state in timeline
-        const timeline = document.getElementById('chronographTimeline');
-        timeline.innerHTML = '';
-        const errorSegment = document.createElement('div');
-        errorSegment.className = 'timeline-segment error';
-        errorSegment.style.width = '100%';
-        errorSegment.title = 'Error loading timeline data';
-        timeline.appendChild(errorSegment);
     }
-}
-
-// Update chronograph timeline with state data
-function updateChronograph(stateData) {
-    const timeline = document.getElementById('chronographTimeline');
-    timeline.innerHTML = '';
-    
-    // Get current time in CST
-    const now = new Date();
-    const cstNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-    
-    // Calculate today's window
-    const startTime = new Date(now);
-    startTime.setHours(7, 0, 0, 0);
-    const endTime = new Date(now);
-    endTime.setHours(17, 0, 0, 0);
-    const totalDuration = endTime - startTime;
-    
-    // If it's before 7 AM, show grey bar
-    if (cstNow.getHours() < 7) {
-        const noDataSegment = document.createElement('div');
-        noDataSegment.className = 'timeline-segment no-data';
-        noDataSegment.style.width = '100%';
-        noDataSegment.title = 'Before work hours (7 AM CST)';
-        timeline.appendChild(noDataSegment);
-        return;
-    }
-    
-    if (!stateData || !stateData.length) {
-        const noDataSegment = document.createElement('div');
-        noDataSegment.className = 'timeline-segment no-data';
-        noDataSegment.style.width = '100%';
-        timeline.appendChild(noDataSegment);
-        return;
-    }
-    
-    // Sort data chronologically
-    const sortedData = [...stateData].sort((a, b) => 
-        new Date(a.timestamp) - new Date(b.timestamp)
-    );
-    
-    // Filter to only include today's workday events
-    const filteredData = sortedData.filter(entry => {
-        const entryTime = new Date(entry.timestamp);
-        // Convert entry time to CST for comparison
-        const entryCst = new Date(entryTime.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-        const entryHour = entryCst.getHours();
-        return entryHour >= 7 && entryHour < 17 && 
-               entryTime.toDateString() === now.toDateString();
-    });
-    
-    if (filteredData.length === 0) {
-        const noDataSegment = document.createElement('div');
-        noDataSegment.className = 'timeline-segment no-data';
-        noDataSegment.style.width = '100%';
-        timeline.appendChild(noDataSegment);
-        return;
-    }
-    
-    let lastEndTime = startTime;
-    let segments = [];
-    
-    // Create all segments first
-    filteredData.forEach((entry, index) => {
-        const currentTime = new Date(entry.timestamp);
-        const adjustedCurrentTime = new Date(Math.max(currentTime, startTime));
-        
-        // Create gap segment if needed
-        if (adjustedCurrentTime > lastEndTime) {
-            const gapSegment = document.createElement('div');
-            gapSegment.className = 'timeline-segment no-data';
-            const gapWidth = ((adjustedCurrentTime - lastEndTime) / totalDuration) * 100;
-            gapSegment.style.width = `${gapWidth}%`;
-            segments.push(gapSegment);
-        }
-        
-        // Create state segment
-        const segment = document.createElement('div');
-        segment.className = `timeline-segment ${entry.state.toLowerCase()}`;
-        
-        // Calculate segment width based on the event's duration or up to current time for the last segment
-        const duration = entry.duration * 1000; // Convert seconds to milliseconds
-        const segmentEndTime = new Date(adjustedCurrentTime.getTime() + duration);
-        
-        // For the last state, extend it to the current time if it's the current state
-        const isLastEntry = index === filteredData.length - 1;
-        const adjustedEndTime = isLastEntry && entry.state === currentState ?
-            new Date(Math.min(now, endTime)) :
-            new Date(Math.min(segmentEndTime, endTime));
-        
-        const width = ((adjustedEndTime - adjustedCurrentTime) / totalDuration) * 100;
-        segment.style.width = `${width}%`;
-        
-        // Add tooltip information
-        const tooltipTime = adjustedCurrentTime.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-            timeZone: 'America/Chicago'
-        });
-        const tooltipDuration = isLastEntry && entry.state === currentState ?
-            formatDuration((now - adjustedCurrentTime) / 1000) :
-            formatDuration(entry.duration);
-        segment.title = `${entry.state}\nTime: ${tooltipTime}\nDuration: ${tooltipDuration}`;
-        
-        segments.push(segment);
-        lastEndTime = adjustedEndTime;
-    });
-    
-    // Add final gap segment if needed (up to current time or end time)
-    if (lastEndTime < now && now < endTime) {
-        const finalGapSegment = document.createElement('div');
-        finalGapSegment.className = 'timeline-segment no-data';
-        const gapWidth = ((now - lastEndTime) / totalDuration) * 100;
-        finalGapSegment.style.width = `${gapWidth}%`;
-        segments.push(finalGapSegment);
-    } else if (lastEndTime < endTime) {
-        const finalGapSegment = document.createElement('div');
-        finalGapSegment.className = 'timeline-segment no-data';
-        const gapWidth = ((endTime - lastEndTime) / totalDuration) * 100;
-        finalGapSegment.style.width = `${gapWidth}%`;
-        segments.push(finalGapSegment);
-    }
-    
-    // Append all segments in order
-    segments.forEach(segment => timeline.appendChild(segment));
 }
 
 // Update state change log based on time period

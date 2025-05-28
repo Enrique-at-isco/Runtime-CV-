@@ -218,33 +218,43 @@ class ArUcoStateDetector:
             logger.error(f"Error updating state: {e}")
             return False
 
-    async def process_frame(self):
+    def process_frame(self):
         """Process a single frame and determine machine state."""
         if not self.cap or not self.cap.isOpened():
             self.setup_camera()
             if not self.cap.isOpened():
                 raise RuntimeError(f"Could not open camera {self.camera_id}")
 
-        # Frame rate control
+        # Frame rate control with adaptive timing
         current_time = time.time()
         elapsed = current_time - self.last_frame_time
         if elapsed < self.frame_time:
-            await asyncio.sleep(self.frame_time - elapsed)
+            time.sleep(max(0, self.frame_time - elapsed))
         self.last_frame_time = current_time
 
         try:
+            # Skip frames if we're falling behind
+            if self.cap.get(cv2.CAP_PROP_POS_FRAMES) % 2 != 0:
+                self.cap.grab()
+                return None
+
             ret, frame = self.cap.read()
             if not ret:
                 raise RuntimeError("Failed to capture frame")
 
-            # Detect ArUco markers
+            # Resize frame for faster processing
+            frame = cv2.resize(frame, self.frame_size, interpolation=cv2.INTER_AREA)
+
+            # Convert to grayscale for ArUco detection
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            # Detect ArUco markers with optimized parameters
             if self.detector is not None:
                 corners, ids, rejected = self.detector.detectMarkers(gray)
             else:
                 corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
             
-            current_time = datetime.now(CST)  # Use timezone-aware datetime
+            current_time = datetime.now(CST)
             movement = 0.0
             state_changed = False
 
@@ -267,7 +277,7 @@ class ArUcoStateDetector:
                 self.last_position = current_position
                 self.last_detection_time = current_time
 
-                # Draw detection results for debugging
+                # Only draw debug visualization if window is visible
                 if cv2.getWindowProperty('Machine State Detection', cv2.WND_PROP_VISIBLE) >= 0:
                     frame = cv2.aruco.drawDetectedMarkers(frame, corners, ids)
                     center = (int(current_position[0]), int(current_position[1]))
@@ -289,7 +299,7 @@ class ArUcoStateDetector:
                     state_changed = self._update_state('ERROR', current_time)
                     self.last_position = None
 
-            # Show frame if window exists
+            # Show frame if window exists and debug mode is enabled
             if cv2.getWindowProperty('Machine State Detection', cv2.WND_PROP_VISIBLE) >= 0:
                 cv2.imshow('Machine State Detection', frame)
                 cv2.waitKey(1)
@@ -298,16 +308,17 @@ class ArUcoStateDetector:
             if state_changed:
                 new_state_entry = MachineState(
                     state=self.current_state,
-                    timestamp=current_time,  # Use timezone-aware timestamp
+                    timestamp=current_time,
                     duration=0.0,
-                    description=self._get_description(self.current_state)
+                    description=self._get_description(self.current_state),
+                    tag_id=self.last_tag_id
                 )
-                await self.state_queue.put((new_state_entry, current_time))
+                asyncio.create_task(self.state_queue.put((new_state_entry, current_time)))
             
             return None
 
         except Exception as e:
-            print(f"Error processing frame: {e}")
+            logger.error(f"Error processing frame: {e}")
             return None
 
     async def database_worker(self):
