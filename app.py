@@ -89,19 +89,19 @@ def detect_available_cameras() -> list:
     print("No working camera found.")
     return []
 
-# Default camera settings
+# Default camera settings optimized for ArUco detection
 DEFAULT_CAMERA_SETTINGS = {
-    'CAP_PROP_FRAME_WIDTH': 640,
-    'CAP_PROP_FRAME_HEIGHT': 480,
-    'CAP_PROP_FPS': 15,  # Reduced FPS for better performance
+    'CAP_PROP_FRAME_WIDTH': 1920,  # Higher resolution for better precision
+    'CAP_PROP_FRAME_HEIGHT': 1080,
+    'CAP_PROP_FPS': 60,  # Higher FPS for better movement detection
     'CAP_PROP_BRIGHTNESS': 0.5,
-    'CAP_PROP_CONTRAST': 0.5,
+    'CAP_PROP_CONTRAST': 0.7,  # Increased contrast for better tag detection
     'CAP_PROP_SATURATION': 0.5,
     'CAP_PROP_GAIN': 0,
     'CAP_PROP_EXPOSURE': -4,
-    'CAP_PROP_AUTO_EXPOSURE': 0.25,
-    'CAP_PROP_AUTOFOCUS': 0,
-    'CAP_PROP_DIAGONAL_FOV': 90,
+    'CAP_PROP_AUTO_EXPOSURE': 0.25,  # Manual exposure for better control
+    'CAP_PROP_AUTOFOCUS': 0,  # Manual focus for better precision
+    'CAP_PROP_DIAGONAL_FOV': 65,  # Narrower FOV for better detail at distance
     'CAP_PROP_ZOOM': 1
 }
 
@@ -126,8 +126,11 @@ def load_camera_settings():
 def save_camera_settings(settings):
     """Save camera settings to file."""
     try:
+        # Ensure the settings directory exists
+        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
         with open(SETTINGS_FILE, 'w') as f:
             json.dump(settings, f, indent=2)
+        print(f"Settings saved to {SETTINGS_FILE}")
     except Exception as e:
         print(f"Error saving camera settings: {e}")
 
@@ -148,6 +151,7 @@ def initialize_camera(camera_index: Optional[str] = None) -> bool:
 
         # Load saved settings or use defaults
         settings = load_camera_settings()
+        print(f"Loaded camera settings: {settings}")
         
         # Initialize detector with camera
         detector = ArUcoStateDetector(camera_id)
@@ -155,10 +159,20 @@ def initialize_camera(camera_index: Optional[str] = None) -> bool:
         # Apply settings to camera
         for prop, value in settings.items():
             if hasattr(cv2, prop):
-                detector.cap.set(getattr(cv2, prop), value)
+                prop_id = getattr(cv2, prop)
+                success = detector.cap.set(prop_id, value)
+                if not success:
+                    print(f"Warning: Failed to set {prop} to {value}")
         
         # Set buffer size to 1 to reduce latency
         detector.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        # Verify settings were applied
+        current_settings = {}
+        for prop in settings.keys():
+            if hasattr(cv2, prop):
+                current_settings[prop] = detector.cap.get(getattr(cv2, prop))
+        print(f"Current camera settings: {current_settings}")
         
         return True
     except Exception as e:
@@ -637,10 +651,10 @@ def get_state_description(state: str) -> str:
     return descriptions.get(state, '')
 
 def process_camera_feed():
-    """Process camera feed with reduced processing load."""
+    """Process camera feed with optimized settings for ArUco detection."""
     global current_state, last_tag_id, state_start_time
     frame_count = 0
-    process_every_n_frames = 3  # Process every 3rd frame
+    process_every_n_frames = 2  # Process every 2nd frame for better responsiveness
     
     while True:
         try:
@@ -676,7 +690,7 @@ def process_camera_feed():
                     'timestamp': datetime.now().isoformat()
                 }))
             
-            time.sleep(0.05)  # Reduced sleep time for better responsiveness
+            time.sleep(0.01)  # Minimal sleep for better responsiveness
         except Exception as e:
             print(f"Error processing camera feed: {e}")
             time.sleep(1)
@@ -760,13 +774,22 @@ async def update_camera_properties(properties: dict):
         for prop, value in properties.items():
             if hasattr(cv2, prop):
                 prop_id = getattr(cv2, prop)
-                detector.cap.set(prop_id, value)
-                current_settings[prop] = value
+                success = detector.cap.set(prop_id, value)
+                if success:
+                    current_settings[prop] = value
+                else:
+                    print(f"Warning: Failed to set {prop} to {value}")
         
         # Save updated settings
         save_camera_settings(current_settings)
         
-        return {"status": "success", "settings": current_settings}
+        # Get actual current values from camera
+        actual_settings = {}
+        for prop in current_settings.keys():
+            if hasattr(cv2, prop):
+                actual_settings[prop] = detector.cap.get(getattr(cv2, prop))
+        
+        return {"status": "success", "settings": actual_settings}
     except Exception as e:
         return JSONResponse(
             status_code=500,

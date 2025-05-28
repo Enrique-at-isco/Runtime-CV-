@@ -194,42 +194,43 @@
                     <div class="setting-item">
                         <label for="brightness">Brightness:</label>
                         <div class="slider-container">
-                            <input type="range" id="brightness" min="0" max="1" step="0.1">
-                            <input type="number" id="brightnessNumber" min="0" max="1" step="0.1">
+                            <input type="range" id="brightness" min="-100" max="100" step="1">
+                            <input type="number" id="brightnessNumber" min="-100" max="100" step="1">
                         </div>
-                        <div class="setting-value">Current: <span id="brightnessValue">0.5</span></div>
+                        <div class="setting-value">Current: <span id="brightnessValue">0</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="contrast">Contrast:</label>
                         <div class="slider-container">
-                            <input type="range" id="contrast" min="0" max="1" step="0.1">
-                            <input type="number" id="contrastNumber" min="0" max="1" step="0.1">
+                            <input type="range" id="contrast" min="-100" max="100" step="1">
+                            <input type="number" id="contrastNumber" min="-100" max="100" step="1">
                         </div>
-                        <div class="setting-value">Current: <span id="contrastValue">0.5</span></div>
+                        <div class="setting-value">Current: <span id="contrastValue">0</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="saturation">Saturation:</label>
                         <div class="slider-container">
-                            <input type="range" id="saturation" min="0" max="1" step="0.1">
-                            <input type="number" id="saturationNumber" min="0" max="1" step="0.1">
+                            <input type="range" id="saturation" min="-100" max="100" step="1">
+                            <input type="number" id="saturationNumber" min="-100" max="100" step="1">
                         </div>
-                        <div class="setting-value">Current: <span id="saturationValue">0.5</span></div>
+                        <div class="setting-value">Current: <span id="saturationValue">0</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="gain">Gain:</label>
                         <div class="slider-container">
-                            <input type="range" id="gain" min="0" max="100" step="1">
-                            <input type="number" id="gainNumber" min="0" max="100" step="1">
+                            <input type="range" id="gain" min="-100" max="100" step="1">
+                            <input type="number" id="gainNumber" min="-100" max="100" step="1">
                         </div>
                         <div class="setting-value">Current: <span id="gainValue">0</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="exposure">Exposure:</label>
                         <div class="slider-container">
-                            <input type="range" id="exposure" min="-7" max="-1" step="1">
-                            <input type="number" id="exposureNumber" min="-7" max="-1" step="1">
+                            <input type="range" id="exposure" min="-13" max="1" step="1">
+                            <input type="number" id="exposureNumber" min="-13" max="1" step="1">
                         </div>
                         <div class="setting-value">Current: <span id="exposureValue">-4</span></div>
+                        <div class="setting-hint">Lower values = darker, Higher values = brighter</div>
                     </div>
                     <div class="setting-item">
                         <label for="autoExposure">Auto Exposure:</label>
@@ -302,12 +303,10 @@
                 const detectorSettings = await detectorResponse.json();
                 originalDetectorSettings = { ...detectorSettings };
                 
-                // Only update UI if no stored settings exist
-                if (!localStorage.getItem('detectorSettings')) {
-                    document.getElementById('movementThreshold').value = detectorSettings.movement_threshold;
-                    document.getElementById('errorTimeout').value = detectorSettings.error_timeout;
-                    document.getElementById('stateChangeDelay').value = detectorSettings.state_change_delay;
-                }
+                // Update detector settings
+                document.getElementById('movementThreshold').value = detectorSettings.movement_threshold;
+                document.getElementById('errorTimeout').value = detectorSettings.error_timeout;
+                document.getElementById('stateChangeDelay').value = detectorSettings.state_change_delay;
                 
                 document.getElementById('movementThresholdValue').textContent = detectorSettings.movement_threshold;
                 document.getElementById('errorTimeoutValue').textContent = detectorSettings.error_timeout;
@@ -318,20 +317,19 @@
                 const cameraProperties = await cameraResponse.json();
                 originalCameraSettings = { ...cameraProperties };
                 
-                // Only update UI if no stored settings exist
-                if (!localStorage.getItem('cameraSettings')) {
-                    // Update camera properties
-                    updateCameraProperty('brightness', cameraProperties.CAP_PROP_BRIGHTNESS);
-                    updateCameraProperty('contrast', cameraProperties.CAP_PROP_CONTRAST);
-                    updateCameraProperty('saturation', cameraProperties.CAP_PROP_SATURATION);
-                    updateCameraProperty('gain', cameraProperties.CAP_PROP_GAIN);
-                    updateCameraProperty('exposure', cameraProperties.CAP_PROP_EXPOSURE);
-                    
-                    document.getElementById('autoExposure').value = cameraProperties.CAP_PROP_AUTO_EXPOSURE;
-                    document.getElementById('autoFocus').value = cameraProperties.CAP_PROP_AUTOFOCUS;
-                    document.getElementById('dFoV').value = cameraProperties.CAP_PROP_DIAGONAL_FOV || '90';
-                    document.getElementById('zoom').value = cameraProperties.CAP_PROP_ZOOM || 1;
-                }
+                // Update camera properties with scaled values
+                updateCameraProperty('brightness', Math.round(cameraProperties.CAP_PROP_BRIGHTNESS * 100));
+                updateCameraProperty('contrast', Math.round(cameraProperties.CAP_PROP_CONTRAST * 100));
+                updateCameraProperty('saturation', Math.round(cameraProperties.CAP_PROP_SATURATION * 100));
+                updateCameraProperty('gain', Math.round(cameraProperties.CAP_PROP_GAIN));
+                updateCameraProperty('exposure', Math.round(cameraProperties.CAP_PROP_EXPOSURE));
+                updateCameraProperty('zoom', cameraProperties.CAP_PROP_ZOOM);
+                
+                document.getElementById('autoExposure').value = cameraProperties.CAP_PROP_AUTO_EXPOSURE;
+                document.getElementById('autoFocus').value = cameraProperties.CAP_PROP_AUTOFOCUS;
+                document.getElementById('dFoV').value = cameraProperties.CAP_PROP_DIAGONAL_FOV || '65';
+                
+                console.log('Settings loaded successfully:', cameraProperties);
             } catch (error) {
                 console.error('Error loading settings:', error);
             }
@@ -373,8 +371,14 @@
         // Real-time update camera properties
         async function updateCameraProperty(setting, value) {
             try {
+                let scaledValue = value;
+                // Scale the values appropriately for the camera
+                if (['brightness', 'contrast', 'saturation'].includes(setting)) {
+                    scaledValue = value / 100; // Convert from -100/100 range to -1/1 range
+                }
+                
                 const properties = {
-                    [setting]: parseFloat(value)
+                    [setting]: scaledValue
                 };
                 const response = await fetch('/api/camera/properties', {
                     method: 'POST',
@@ -389,9 +393,15 @@
                     Object.entries(result.settings).forEach(([prop, val]) => {
                         const valueDisplay = document.getElementById(prop.replace('CAP_PROP_', '').toLowerCase() + 'Value');
                         if (valueDisplay) {
-                            valueDisplay.textContent = val;
+                            // Scale the values back for display
+                            if (['brightness', 'contrast', 'saturation'].includes(prop.replace('CAP_PROP_', '').toLowerCase())) {
+                                valueDisplay.textContent = Math.round(val * 100);
+                            } else {
+                                valueDisplay.textContent = val;
+                            }
                         }
                     });
+                    console.log('Camera property updated:', setting, value);
                 }
             } catch (error) {
                 console.error('Error updating camera property:', error);
@@ -411,21 +421,29 @@
             updateDetectorSetting('state_change_delay', e.target.value);
         });
 
-        // Add event listeners for camera properties
+        // Add event listeners for camera properties with debouncing
         const cameraProperties = ['brightness', 'contrast', 'saturation', 'gain', 'exposure', 'zoom'];
         cameraProperties.forEach(prop => {
             const slider = document.getElementById(prop);
             const number = document.getElementById(prop + 'Number');
             
             if (slider && number) {
+                let timeout;
+                const updateValue = (value) => {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => {
+                        updateCameraProperty('CAP_PROP_' + prop.toUpperCase(), value);
+                    }, 100); // 100ms debounce
+                };
+                
                 slider.addEventListener('input', (e) => {
                     number.value = e.target.value;
-                    updateCameraProperty('CAP_PROP_' + prop.toUpperCase(), e.target.value);
+                    updateValue(e.target.value);
                 });
                 
                 number.addEventListener('input', (e) => {
                     slider.value = e.target.value;
-                    updateCameraProperty('CAP_PROP_' + prop.toUpperCase(), e.target.value);
+                    updateValue(e.target.value);
                 });
             }
         });
@@ -474,9 +492,9 @@
         // Save camera settings
         document.getElementById('saveCameraSettings').addEventListener('click', async () => {
             const properties = {
-                CAP_PROP_BRIGHTNESS: parseFloat(document.getElementById('brightness').value),
-                CAP_PROP_CONTRAST: parseFloat(document.getElementById('contrast').value),
-                CAP_PROP_SATURATION: parseFloat(document.getElementById('saturation').value),
+                CAP_PROP_BRIGHTNESS: parseFloat(document.getElementById('brightness').value) / 100,
+                CAP_PROP_CONTRAST: parseFloat(document.getElementById('contrast').value) / 100,
+                CAP_PROP_SATURATION: parseFloat(document.getElementById('saturation').value) / 100,
                 CAP_PROP_GAIN: parseFloat(document.getElementById('gain').value),
                 CAP_PROP_EXPOSURE: parseFloat(document.getElementById('exposure').value),
                 CAP_PROP_AUTO_EXPOSURE: parseFloat(document.getElementById('autoExposure').value),
@@ -499,9 +517,15 @@
                     Object.entries(result.settings).forEach(([prop, val]) => {
                         const valueDisplay = document.getElementById(prop.replace('CAP_PROP_', '').toLowerCase() + 'Value');
                         if (valueDisplay) {
-                            valueDisplay.textContent = val;
+                            // Scale the values back for display
+                            if (['brightness', 'contrast', 'saturation'].includes(prop.replace('CAP_PROP_', '').toLowerCase())) {
+                                valueDisplay.textContent = Math.round(val * 100);
+                            } else {
+                                valueDisplay.textContent = val;
+                            }
                         }
                     });
+                    console.log('Camera settings saved:', result.settings);
                     alert('Camera settings saved successfully!');
                 } else {
                     alert('Error saving camera settings: ' + result.error);
