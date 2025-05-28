@@ -19,6 +19,7 @@ import asyncio
 import subprocess
 import sys
 from collections import defaultdict
+from models import SessionLocal, MachineState, CST
 
 app = FastAPI()
 
@@ -846,6 +847,31 @@ async def update_detector_settings(settings: dict):
             status_code=500,
             content={"error": str(e)}
         )
+
+@app.get("/api/timeline")
+def get_timeline():
+    db = SessionLocal()
+    try:
+        now = datetime.now(CST)
+        start_of_day = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        end_of_day = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        events = db.query(MachineState).filter(
+            MachineState.timestamp >= start_of_day,
+            MachineState.timestamp <= end_of_day
+        ).order_by(MachineState.timestamp.asc()).all()
+        result = [
+            {
+                "timestamp": state.timestamp.isoformat(),
+                "state": state.state,
+                "duration": state.duration,
+                "description": state.description or "",
+                "tag_id": state.tag_id
+            }
+            for state in events
+        ]
+        return JSONResponse(content=result)
+    finally:
+        db.close()
 
 if __name__ == '__main__':
     import uvicorn
