@@ -145,11 +145,7 @@ engine = create_engine(
     connect_args={
         "check_same_thread": False,
         "timeout": 30  # 30 second timeout
-    },
-    pool_size=5,
-    max_overflow=10,
-    pool_timeout=30,
-    pool_recycle=1800  # Recycle connections after 30 minutes
+    }
 )
 
 # SessionLocal class with error handling
