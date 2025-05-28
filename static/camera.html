@@ -167,7 +167,10 @@
                         <input type="number" id="stateChangeDelay" class="setting-input" step="0.1" min="0">
                         <div class="setting-value">Current: <span id="stateChangeDelayValue">0.5</span></div>
                     </div>
-                    <button id="resetDetectorSettings" class="reset-btn">Reset Detector Settings</button>
+                    <div class="button-group">
+                        <button id="saveDetectorSettings" class="save-btn">Save Detector Settings</button>
+                        <button id="resetDetectorSettings" class="reset-btn">Reset Detector Settings</button>
+                    </div>
                 </div>
 
                 <div class="settings-section">
@@ -274,6 +277,43 @@
         let originalDetectorSettings = null;
         let originalCameraSettings = null;
 
+        // Load settings from localStorage
+        function loadStoredSettings() {
+            const storedDetectorSettings = localStorage.getItem('detectorSettings');
+            const storedCameraSettings = localStorage.getItem('cameraSettings');
+            
+            if (storedDetectorSettings) {
+                const settings = JSON.parse(storedDetectorSettings);
+                document.getElementById('movementThreshold').value = settings.movement_threshold;
+                document.getElementById('errorTimeout').value = settings.error_timeout;
+                document.getElementById('stateChangeDelay').value = settings.state_change_delay;
+            }
+            
+            if (storedCameraSettings) {
+                const settings = JSON.parse(storedCameraSettings);
+                document.getElementById('resolution').value = settings.resolution || '480p';
+                document.getElementById('fps').value = settings.fps || 15;
+                document.getElementById('dFoV').value = settings.dFoV || '90';
+                document.getElementById('zoom').value = settings.zoom || 1;
+                document.getElementById('brightness').value = settings.brightness || 0.5;
+                document.getElementById('contrast').value = settings.contrast || 0.5;
+                document.getElementById('saturation').value = settings.saturation || 0.5;
+                document.getElementById('gain').value = settings.gain || 0;
+                document.getElementById('exposure').value = settings.exposure || -4;
+                document.getElementById('autoExposure').value = settings.autoExposure || '0.25';
+                document.getElementById('autoFocus').value = settings.autoFocus || '0';
+            }
+        }
+
+        // Save settings to localStorage
+        function saveSettingsToStorage(type, settings) {
+            if (type === 'detector') {
+                localStorage.setItem('detectorSettings', JSON.stringify(settings));
+            } else if (type === 'camera') {
+                localStorage.setItem('cameraSettings', JSON.stringify(settings));
+            }
+        }
+
         // Load current settings
         async function loadSettings() {
             try {
@@ -282,13 +322,15 @@
                 const detectorSettings = await detectorResponse.json();
                 originalDetectorSettings = { ...detectorSettings };
                 
-                document.getElementById('movementThreshold').value = detectorSettings.movement_threshold;
+                // Only update UI if no stored settings exist
+                if (!localStorage.getItem('detectorSettings')) {
+                    document.getElementById('movementThreshold').value = detectorSettings.movement_threshold;
+                    document.getElementById('errorTimeout').value = detectorSettings.error_timeout;
+                    document.getElementById('stateChangeDelay').value = detectorSettings.state_change_delay;
+                }
+                
                 document.getElementById('movementThresholdValue').textContent = detectorSettings.movement_threshold;
-                
-                document.getElementById('errorTimeout').value = detectorSettings.error_timeout;
                 document.getElementById('errorTimeoutValue').textContent = detectorSettings.error_timeout;
-                
-                document.getElementById('stateChangeDelay').value = detectorSettings.state_change_delay;
                 document.getElementById('stateChangeDelayValue').textContent = detectorSettings.state_change_delay;
 
                 // Load camera properties
@@ -296,31 +338,31 @@
                 const cameraProperties = await cameraResponse.json();
                 originalCameraSettings = { ...cameraProperties };
                 
-                // Set resolution based on current width/height
-                const width = cameraProperties.CAP_PROP_FRAME_WIDTH;
-                const height = cameraProperties.CAP_PROP_FRAME_HEIGHT;
-                let resolution = '480p';
-                if (width === 3840 && height === 2160) resolution = '4k';
-                else if (width === 1920 && height === 1080) resolution = '1080p';
-                else if (width === 1280 && height === 720) resolution = '720p';
-                document.getElementById('resolution').value = resolution;
-                
-                // Set default FPS to 15 if not set
-                const fps = cameraProperties.CAP_PROP_FPS || 15;
-                updateCameraProperty('fps', fps);
-                
-                // Update dFoV
-                document.getElementById('dFoV').value = cameraProperties.CAP_PROP_DIAGONAL_FOV || '90';
-                
-                // Update zoom
-                updateCameraProperty('zoom', cameraProperties.CAP_PROP_ZOOM || 1);
-                
-                // Update all camera property inputs and their values
-                updateCameraProperty('frameWidth', cameraProperties.CAP_PROP_FRAME_WIDTH);
-                updateCameraProperty('frameHeight', cameraProperties.CAP_PROP_FRAME_HEIGHT);
-                
-                document.getElementById('autoExposure').value = cameraProperties.CAP_PROP_AUTO_EXPOSURE;
-                document.getElementById('autoFocus').value = cameraProperties.CAP_PROP_AUTOFOCUS;
+                // Only update UI if no stored settings exist
+                if (!localStorage.getItem('cameraSettings')) {
+                    // Set resolution based on current width/height
+                    const width = cameraProperties.CAP_PROP_FRAME_WIDTH;
+                    const height = cameraProperties.CAP_PROP_FRAME_HEIGHT;
+                    let resolution = '480p';
+                    if (width === 3840 && height === 2160) resolution = '4k';
+                    else if (width === 1920 && height === 1080) resolution = '1080p';
+                    else if (width === 1280 && height === 720) resolution = '720p';
+                    document.getElementById('resolution').value = resolution;
+                    
+                    // Set default FPS to 15 if not set
+                    const fps = cameraProperties.CAP_PROP_FPS || 15;
+                    updateCameraProperty('fps', fps);
+                    
+                    // Update other camera properties
+                    updateCameraProperty('brightness', cameraProperties.CAP_PROP_BRIGHTNESS);
+                    updateCameraProperty('contrast', cameraProperties.CAP_PROP_CONTRAST);
+                    updateCameraProperty('saturation', cameraProperties.CAP_PROP_SATURATION);
+                    updateCameraProperty('gain', cameraProperties.CAP_PROP_GAIN);
+                    updateCameraProperty('exposure', cameraProperties.CAP_PROP_EXPOSURE);
+                    
+                    document.getElementById('autoExposure').value = cameraProperties.CAP_PROP_AUTO_EXPOSURE;
+                    document.getElementById('autoFocus').value = cameraProperties.CAP_PROP_AUTOFOCUS;
+                }
             } catch (error) {
                 console.error('Error loading settings:', error);
             }
@@ -411,55 +453,36 @@
             });
         });
 
-        // Reset detector settings
-        document.getElementById('resetDetectorSettings').addEventListener('click', async () => {
-            if (originalDetectorSettings) {
-                try {
-                    const response = await fetch('/api/detector/settings', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(originalDetectorSettings)
-                    });
-                    const result = await response.json();
-                    if (result.status === 'success') {
-                        loadSettings(); // Reload all settings
-                    }
-                } catch (error) {
-                    console.error('Error resetting detector settings:', error);
+        // Save detector settings
+        document.getElementById('saveDetectorSettings').addEventListener('click', async () => {
+            const settings = {
+                movement_threshold: parseFloat(document.getElementById('movementThreshold').value),
+                error_timeout: parseFloat(document.getElementById('errorTimeout').value),
+                state_change_delay: parseFloat(document.getElementById('stateChangeDelay').value)
+            };
+
+            try {
+                const response = await fetch('/api/detector/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(settings)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    // Save to localStorage
+                    saveSettingsToStorage('detector', settings);
+                    alert('Detector settings saved successfully!');
+                    loadSettings(); // Reload settings to ensure everything is in sync
+                } else {
+                    alert('Error saving detector settings: ' + result.error);
                 }
+            } catch (error) {
+                console.error('Error saving detector settings:', error);
+                alert('Error saving detector settings. Please try again.');
             }
         });
-
-        // Reset camera settings
-        document.getElementById('resetCameraSettings').addEventListener('click', async () => {
-            if (originalCameraSettings) {
-                try {
-                    const response = await fetch('/api/camera/properties', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(originalCameraSettings)
-                    });
-                    const result = await response.json();
-                    if (result.status === 'success') {
-                        loadSettings(); // Reload all settings
-                    }
-                } catch (error) {
-                    console.error('Error resetting camera settings:', error);
-                }
-            }
-        });
-
-        // Resolution presets
-        const resolutionPresets = {
-            '480p': { width: 640, height: 480, maxFps: 30 },
-            '720p': { width: 1280, height: 720, maxFps: 30 },
-            '1080p': { width: 1920, height: 1080, maxFps: 30 },
-            '4k': { width: 3840, height: 2160, maxFps: 30 }
-        };
 
         // Save camera settings
         document.getElementById('saveCameraSettings').addEventListener('click', async () => {
@@ -482,6 +505,22 @@
                 CAP_PROP_ZOOM: parseFloat(document.getElementById('zoom').value)
             };
 
+            // Save to localStorage
+            const storedSettings = {
+                resolution: document.getElementById('resolution').value,
+                fps: document.getElementById('fps').value,
+                dFoV: document.getElementById('dFoV').value,
+                zoom: document.getElementById('zoom').value,
+                brightness: document.getElementById('brightness').value,
+                contrast: document.getElementById('contrast').value,
+                saturation: document.getElementById('saturation').value,
+                gain: document.getElementById('gain').value,
+                exposure: document.getElementById('exposure').value,
+                autoExposure: document.getElementById('autoExposure').value,
+                autoFocus: document.getElementById('autoFocus').value
+            };
+            saveSettingsToStorage('camera', storedSettings);
+
             try {
                 const response = await fetch('/api/camera/properties', {
                     method: 'POST',
@@ -503,8 +542,55 @@
             }
         });
 
+        // Reset detector settings
+        document.getElementById('resetDetectorSettings').addEventListener('click', async () => {
+            if (originalDetectorSettings) {
+                try {
+                    const response = await fetch('/api/detector/settings', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(originalDetectorSettings)
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        // Clear localStorage
+                        localStorage.removeItem('detectorSettings');
+                        loadSettings(); // Reload all settings
+                    }
+                } catch (error) {
+                    console.error('Error resetting detector settings:', error);
+                }
+            }
+        });
+
+        // Reset camera settings
+        document.getElementById('resetCameraSettings').addEventListener('click', async () => {
+            if (originalCameraSettings) {
+                try {
+                    const response = await fetch('/api/camera/properties', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(originalCameraSettings)
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        // Clear localStorage
+                        localStorage.removeItem('cameraSettings');
+                        loadSettings(); // Reload all settings
+                    }
+                } catch (error) {
+                    console.error('Error resetting camera settings:', error);
+                }
+            }
+        });
+
         // Load settings when page loads
-        loadSettings();
+        loadStoredSettings(); // Load stored settings first
+        loadSettings(); // Then load current settings from server
     </script>
 </body>
 </html> 
