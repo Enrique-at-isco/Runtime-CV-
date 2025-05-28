@@ -89,6 +89,48 @@ def detect_available_cameras() -> list:
     print("No working camera found.")
     return []
 
+# Default camera settings
+DEFAULT_CAMERA_SETTINGS = {
+    'CAP_PROP_FRAME_WIDTH': 640,
+    'CAP_PROP_FRAME_HEIGHT': 480,
+    'CAP_PROP_FPS': 15,  # Reduced FPS for better performance
+    'CAP_PROP_BRIGHTNESS': 0.5,
+    'CAP_PROP_CONTRAST': 0.5,
+    'CAP_PROP_SATURATION': 0.5,
+    'CAP_PROP_GAIN': 0,
+    'CAP_PROP_EXPOSURE': -4,
+    'CAP_PROP_AUTO_EXPOSURE': 0.25,
+    'CAP_PROP_AUTOFOCUS': 0,
+    'CAP_PROP_DIAGONAL_FOV': 90,
+    'CAP_PROP_ZOOM': 1
+}
+
+# Settings file path
+SETTINGS_FILE = 'camera_settings.json'
+
+def load_camera_settings():
+    """Load camera settings from file or return defaults."""
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, 'r') as f:
+                settings = json.load(f)
+                # Ensure all required properties exist
+                for key, value in DEFAULT_CAMERA_SETTINGS.items():
+                    if key not in settings:
+                        settings[key] = value
+                return settings
+    except Exception as e:
+        print(f"Error loading camera settings: {e}")
+    return DEFAULT_CAMERA_SETTINGS.copy()
+
+def save_camera_settings(settings):
+    """Save camera settings to file."""
+    try:
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(settings, f, indent=2)
+    except Exception as e:
+        print(f"Error saving camera settings: {e}")
+
 def initialize_camera(camera_index: Optional[str] = None) -> bool:
     """Initialize camera with the given device path or automatically select one if not specified."""
     global detector, camera_id
@@ -103,7 +145,21 @@ def initialize_camera(camera_index: Optional[str] = None) -> bool:
             print(f"Automatically selected camera {camera_id}")
         else:
             camera_id = camera_index
+
+        # Load saved settings or use defaults
+        settings = load_camera_settings()
+        
+        # Initialize detector with camera
         detector = ArUcoStateDetector(camera_id)
+        
+        # Apply settings to camera
+        for prop, value in settings.items():
+            if hasattr(cv2, prop):
+                detector.cap.set(getattr(cv2, prop), value)
+        
+        # Set buffer size to 1 to reduce latency
+        detector.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
         return True
     except Exception as e:
         print(f"Error initializing camera: {e}")
@@ -581,17 +637,28 @@ def get_state_description(state: str) -> str:
     return descriptions.get(state, '')
 
 def process_camera_feed():
+    """Process camera feed with reduced processing load."""
     global current_state, last_tag_id, state_start_time
+    frame_count = 0
+    process_every_n_frames = 3  # Process every 3rd frame
+    
     while True:
         try:
             if detector is None or detector.cap is None or not detector.cap.isOpened():
                 time.sleep(1)
                 continue
+                
             ret, frame = detector.cap.read()
             if not ret:
                 continue
+                
+            frame_count += 1
+            if frame_count % process_every_n_frames != 0:
+                continue
+                
             # Process frame with ArUco detector
             state, tag_id, _ = detector.detect_state(frame)
+            
             # Update state if changed
             if state != current_state:
                 print(f"[StateChange] State changed from {current_state} to {state}, tag_id={tag_id}")
@@ -608,7 +675,8 @@ def process_camera_feed():
                     'last_tag_id': last_tag_id,
                     'timestamp': datetime.now().isoformat()
                 }))
-            time.sleep(0.1)  # Small delay to prevent high CPU usage
+            
+            time.sleep(0.05)  # Reduced sleep time for better responsiveness
         except Exception as e:
             print(f"Error processing camera feed: {e}")
             time.sleep(1)
@@ -685,10 +753,20 @@ async def update_camera_properties(properties: dict):
         )
     
     try:
+        # Get current settings
+        current_settings = load_camera_settings()
+        
+        # Update settings with new values
         for prop, value in properties.items():
             if hasattr(cv2, prop):
-                detector.cap.set(getattr(cv2, prop), value)
-        return {"status": "success"}
+                prop_id = getattr(cv2, prop)
+                detector.cap.set(prop_id, value)
+                current_settings[prop] = value
+        
+        # Save updated settings
+        save_camera_settings(current_settings)
+        
+        return {"status": "success", "settings": current_settings}
     except Exception as e:
         return JSONResponse(
             status_code=500,
