@@ -49,12 +49,13 @@
             color: var(--primary-color);
         }
         .setting-item {
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }
         .setting-item label {
             display: block;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
             color: var(--text-color);
+            font-weight: 500;
         }
         .setting-input {
             width: 100%;
@@ -90,6 +91,34 @@
         .back-link:hover {
             text-decoration: underline;
         }
+        .reset-btn {
+            background: var(--error-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .reset-btn:hover {
+            background: #d32f2f;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .slider-container input[type="range"] {
+            flex: 1;
+        }
+        .slider-container input[type="number"] {
+            width: 80px;
+        }
+        .setting-value {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
@@ -115,51 +144,86 @@
                     <div class="setting-item">
                         <label for="movementThreshold">Movement Threshold:</label>
                         <input type="number" id="movementThreshold" class="setting-input" step="0.1" min="0">
+                        <div class="setting-value">Current: <span id="movementThresholdValue">0.5</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="errorTimeout">Error Timeout (seconds):</label>
                         <input type="number" id="errorTimeout" class="setting-input" step="0.1" min="0">
+                        <div class="setting-value">Current: <span id="errorTimeoutValue">3.0</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="stateChangeDelay">State Change Delay (seconds):</label>
                         <input type="number" id="stateChangeDelay" class="setting-input" step="0.1" min="0">
+                        <div class="setting-value">Current: <span id="stateChangeDelayValue">0.5</span></div>
                     </div>
-                    <button id="saveDetectorSettings" class="save-btn">Save Detector Settings</button>
+                    <button id="resetDetectorSettings" class="reset-btn">Reset Detector Settings</button>
                 </div>
 
                 <div class="settings-section">
                     <h3>Camera Properties</h3>
                     <div class="setting-item">
                         <label for="frameWidth">Frame Width:</label>
-                        <input type="number" id="frameWidth" class="setting-input" min="1">
+                        <div class="slider-container">
+                            <input type="range" id="frameWidth" min="320" max="3840" step="1">
+                            <input type="number" id="frameWidthNumber" min="320" max="3840" step="1">
+                        </div>
+                        <div class="setting-value">Current: <span id="frameWidthValue">640</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="frameHeight">Frame Height:</label>
-                        <input type="number" id="frameHeight" class="setting-input" min="1">
+                        <div class="slider-container">
+                            <input type="range" id="frameHeight" min="240" max="2160" step="1">
+                            <input type="number" id="frameHeightNumber" min="240" max="2160" step="1">
+                        </div>
+                        <div class="setting-value">Current: <span id="frameHeightValue">480</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="fps">FPS:</label>
-                        <input type="number" id="fps" class="setting-input" min="1">
+                        <div class="slider-container">
+                            <input type="range" id="fps" min="1" max="60" step="1">
+                            <input type="number" id="fpsNumber" min="1" max="60" step="1">
+                        </div>
+                        <div class="setting-value">Current: <span id="fpsValue">30</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="brightness">Brightness:</label>
-                        <input type="number" id="brightness" class="setting-input" step="0.1" min="0" max="1">
+                        <div class="slider-container">
+                            <input type="range" id="brightness" min="0" max="1" step="0.1">
+                            <input type="number" id="brightnessNumber" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="setting-value">Current: <span id="brightnessValue">0.5</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="contrast">Contrast:</label>
-                        <input type="number" id="contrast" class="setting-input" step="0.1" min="0" max="1">
+                        <div class="slider-container">
+                            <input type="range" id="contrast" min="0" max="1" step="0.1">
+                            <input type="number" id="contrastNumber" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="setting-value">Current: <span id="contrastValue">0.5</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="saturation">Saturation:</label>
-                        <input type="number" id="saturation" class="setting-input" step="0.1" min="0" max="1">
+                        <div class="slider-container">
+                            <input type="range" id="saturation" min="0" max="1" step="0.1">
+                            <input type="number" id="saturationNumber" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="setting-value">Current: <span id="saturationValue">0.5</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="gain">Gain:</label>
-                        <input type="number" id="gain" class="setting-input" step="0.1" min="0">
+                        <div class="slider-container">
+                            <input type="range" id="gain" min="0" max="100" step="1">
+                            <input type="number" id="gainNumber" min="0" max="100" step="1">
+                        </div>
+                        <div class="setting-value">Current: <span id="gainValue">0</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="exposure">Exposure:</label>
-                        <input type="number" id="exposure" class="setting-input" step="0.1">
+                        <div class="slider-container">
+                            <input type="range" id="exposure" min="-7" max="-1" step="1">
+                            <input type="number" id="exposureNumber" min="-7" max="-1" step="1">
+                        </div>
+                        <div class="setting-value">Current: <span id="exposureValue">-4</span></div>
                     </div>
                     <div class="setting-item">
                         <label for="autoExposure">Auto Exposure:</label>
@@ -175,34 +239,49 @@
                             <option value="1">On</option>
                         </select>
                     </div>
-                    <button id="saveCameraSettings" class="save-btn">Save Camera Settings</button>
+                    <button id="resetCameraSettings" class="reset-btn">Reset Camera Settings</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // Store original settings
+        let originalDetectorSettings = null;
+        let originalCameraSettings = null;
+
         // Load current settings
         async function loadSettings() {
             try {
                 // Load detector settings
                 const detectorResponse = await fetch('/api/detector/settings');
                 const detectorSettings = await detectorResponse.json();
+                originalDetectorSettings = { ...detectorSettings };
+                
                 document.getElementById('movementThreshold').value = detectorSettings.movement_threshold;
+                document.getElementById('movementThresholdValue').textContent = detectorSettings.movement_threshold;
+                
                 document.getElementById('errorTimeout').value = detectorSettings.error_timeout;
+                document.getElementById('errorTimeoutValue').textContent = detectorSettings.error_timeout;
+                
                 document.getElementById('stateChangeDelay').value = detectorSettings.state_change_delay;
+                document.getElementById('stateChangeDelayValue').textContent = detectorSettings.state_change_delay;
 
                 // Load camera properties
                 const cameraResponse = await fetch('/api/camera/properties');
                 const cameraProperties = await cameraResponse.json();
-                document.getElementById('frameWidth').value = cameraProperties.CAP_PROP_FRAME_WIDTH;
-                document.getElementById('frameHeight').value = cameraProperties.CAP_PROP_FRAME_HEIGHT;
-                document.getElementById('fps').value = cameraProperties.CAP_PROP_FPS;
-                document.getElementById('brightness').value = cameraProperties.CAP_PROP_BRIGHTNESS;
-                document.getElementById('contrast').value = cameraProperties.CAP_PROP_CONTRAST;
-                document.getElementById('saturation').value = cameraProperties.CAP_PROP_SATURATION;
-                document.getElementById('gain').value = cameraProperties.CAP_PROP_GAIN;
-                document.getElementById('exposure').value = cameraProperties.CAP_PROP_EXPOSURE;
+                originalCameraSettings = { ...cameraProperties };
+                
+                // Update all camera property inputs and their values
+                updateCameraProperty('frameWidth', cameraProperties.CAP_PROP_FRAME_WIDTH);
+                updateCameraProperty('frameHeight', cameraProperties.CAP_PROP_FRAME_HEIGHT);
+                updateCameraProperty('fps', cameraProperties.CAP_PROP_FPS);
+                updateCameraProperty('brightness', cameraProperties.CAP_PROP_BRIGHTNESS);
+                updateCameraProperty('contrast', cameraProperties.CAP_PROP_CONTRAST);
+                updateCameraProperty('saturation', cameraProperties.CAP_PROP_SATURATION);
+                updateCameraProperty('gain', cameraProperties.CAP_PROP_GAIN);
+                updateCameraProperty('exposure', cameraProperties.CAP_PROP_EXPOSURE);
+                
                 document.getElementById('autoExposure').value = cameraProperties.CAP_PROP_AUTO_EXPOSURE;
                 document.getElementById('autoFocus').value = cameraProperties.CAP_PROP_AUTOFOCUS;
             } catch (error) {
@@ -210,15 +289,23 @@
             }
         }
 
-        // Save detector settings
-        document.getElementById('saveDetectorSettings').addEventListener('click', async () => {
-            const settings = {
-                movement_threshold: parseFloat(document.getElementById('movementThreshold').value),
-                error_timeout: parseFloat(document.getElementById('errorTimeout').value),
-                state_change_delay: parseFloat(document.getElementById('stateChangeDelay').value)
-            };
+        // Update a camera property value
+        function updateCameraProperty(property, value) {
+            const slider = document.getElementById(property);
+            const number = document.getElementById(property + 'Number');
+            const valueDisplay = document.getElementById(property + 'Value');
+            
+            slider.value = value;
+            number.value = value;
+            valueDisplay.textContent = value;
+        }
 
+        // Real-time update detector settings
+        async function updateDetectorSetting(setting, value) {
             try {
+                const settings = {
+                    [setting]: parseFloat(value)
+                };
                 const response = await fetch('/api/detector/settings', {
                     method: 'POST',
                     headers: {
@@ -228,32 +315,19 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert('Detector settings saved successfully!');
-                } else {
-                    alert('Error saving detector settings: ' + result.error);
+                    document.getElementById(setting + 'Value').textContent = value;
                 }
             } catch (error) {
-                console.error('Error saving detector settings:', error);
-                alert('Error saving detector settings. Please try again.');
+                console.error('Error updating detector setting:', error);
             }
-        });
+        }
 
-        // Save camera settings
-        document.getElementById('saveCameraSettings').addEventListener('click', async () => {
-            const properties = {
-                CAP_PROP_FRAME_WIDTH: parseInt(document.getElementById('frameWidth').value),
-                CAP_PROP_FRAME_HEIGHT: parseInt(document.getElementById('frameHeight').value),
-                CAP_PROP_FPS: parseInt(document.getElementById('fps').value),
-                CAP_PROP_BRIGHTNESS: parseFloat(document.getElementById('brightness').value),
-                CAP_PROP_CONTRAST: parseFloat(document.getElementById('contrast').value),
-                CAP_PROP_SATURATION: parseFloat(document.getElementById('saturation').value),
-                CAP_PROP_GAIN: parseFloat(document.getElementById('gain').value),
-                CAP_PROP_EXPOSURE: parseFloat(document.getElementById('exposure').value),
-                CAP_PROP_AUTO_EXPOSURE: parseFloat(document.getElementById('autoExposure').value),
-                CAP_PROP_AUTOFOCUS: parseFloat(document.getElementById('autoFocus').value)
-            };
-
+        // Real-time update camera properties
+        async function updateCameraProperty(setting, value) {
             try {
+                const properties = {
+                    [setting]: parseFloat(value)
+                };
                 const response = await fetch('/api/camera/properties', {
                     method: 'POST',
                     headers: {
@@ -263,13 +337,82 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert('Camera settings saved successfully!');
-                } else {
-                    alert('Error saving camera settings: ' + result.error);
+                    document.getElementById(setting + 'Value').textContent = value;
                 }
             } catch (error) {
-                console.error('Error saving camera settings:', error);
-                alert('Error saving camera settings. Please try again.');
+                console.error('Error updating camera property:', error);
+            }
+        }
+
+        // Add event listeners for real-time updates
+        document.getElementById('movementThreshold').addEventListener('input', (e) => {
+            updateDetectorSetting('movement_threshold', e.target.value);
+        });
+
+        document.getElementById('errorTimeout').addEventListener('input', (e) => {
+            updateDetectorSetting('error_timeout', e.target.value);
+        });
+
+        document.getElementById('stateChangeDelay').addEventListener('input', (e) => {
+            updateDetectorSetting('state_change_delay', e.target.value);
+        });
+
+        // Add event listeners for camera properties
+        const cameraProperties = ['frameWidth', 'frameHeight', 'fps', 'brightness', 'contrast', 'saturation', 'gain', 'exposure'];
+        cameraProperties.forEach(prop => {
+            const slider = document.getElementById(prop);
+            const number = document.getElementById(prop + 'Number');
+            
+            slider.addEventListener('input', (e) => {
+                number.value = e.target.value;
+                updateCameraProperty('CAP_PROP_' + prop.toUpperCase(), e.target.value);
+            });
+            
+            number.addEventListener('input', (e) => {
+                slider.value = e.target.value;
+                updateCameraProperty('CAP_PROP_' + prop.toUpperCase(), e.target.value);
+            });
+        });
+
+        // Reset detector settings
+        document.getElementById('resetDetectorSettings').addEventListener('click', async () => {
+            if (originalDetectorSettings) {
+                try {
+                    const response = await fetch('/api/detector/settings', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(originalDetectorSettings)
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        loadSettings(); // Reload all settings
+                    }
+                } catch (error) {
+                    console.error('Error resetting detector settings:', error);
+                }
+            }
+        });
+
+        // Reset camera settings
+        document.getElementById('resetCameraSettings').addEventListener('click', async () => {
+            if (originalCameraSettings) {
+                try {
+                    const response = await fetch('/api/camera/properties', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(originalCameraSettings)
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        loadSettings(); // Reload all settings
+                    }
+                } catch (error) {
+                    console.error('Error resetting camera settings:', error);
+                }
             }
         });
 
