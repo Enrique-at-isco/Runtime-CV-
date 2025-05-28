@@ -85,17 +85,26 @@ class ArUcoStateDetector:
             if self.cap is not None:
                 self.cap.release()
             
-            # Try V4L2 first (Linux)
-            self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_V4L2)
-            if not self.cap.isOpened():
-                # Try DirectShow (Windows)
-                self.cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
-                if not self.cap.isOpened():
-                    # Try default backend
-                    self.cap = cv2.VideoCapture(self.camera_id)
+            # Try different camera backends
+            backends = [
+                (cv2.CAP_V4L2, "V4L2"),
+                (cv2.CAP_DSHOW, "DirectShow"),
+                (cv2.CAP_ANY, "Default")
+            ]
             
-            if not self.cap.isOpened():
-                raise RuntimeError(f"Failed to open camera {self.camera_id}")
+            for backend, name in backends:
+                try:
+                    logger.info(f"Trying to open camera {self.camera_id} with {name} backend")
+                    self.cap = cv2.VideoCapture(self.camera_id, backend)
+                    if self.cap.isOpened():
+                        logger.info(f"Successfully opened camera with {name} backend")
+                        break
+                except Exception as e:
+                    logger.warning(f"Failed to open camera with {name} backend: {e}")
+                    continue
+            
+            if not self.cap or not self.cap.isOpened():
+                raise RuntimeError(f"Failed to open camera {self.camera_id} with any backend")
             
             # Set reduced resolution
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_size[0])
@@ -470,4 +479,17 @@ class ArUcoStateDetector:
             logger.error(f"Error during cleanup: {e}")
 
 # Create a global instance
-detector = ArUcoStateDetector(state_change_delay=0.5) 
+detector = None  # Initialize as None
+
+def initialize_detector(camera_id: Optional[str] = "0"):
+    """Initialize the detector with a specific camera ID"""
+    global detector
+    try:
+        detector = ArUcoStateDetector(camera_id=camera_id, state_change_delay=0.5)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize detector: {e}")
+        return False
+
+# Initialize with default camera (0)
+initialize_detector() 
