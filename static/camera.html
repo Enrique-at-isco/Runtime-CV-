@@ -119,6 +119,12 @@
             color: var(--text-secondary);
             margin-top: 4px;
         }
+        .setting-hint {
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -162,28 +168,37 @@
                 <div class="settings-section">
                     <h3>Camera Properties</h3>
                     <div class="setting-item">
-                        <label for="frameWidth">Frame Width:</label>
-                        <div class="slider-container">
-                            <input type="range" id="frameWidth" min="320" max="3840" step="1">
-                            <input type="number" id="frameWidthNumber" min="320" max="3840" step="1">
-                        </div>
-                        <div class="setting-value">Current: <span id="frameWidthValue">640</span></div>
-                    </div>
-                    <div class="setting-item">
-                        <label for="frameHeight">Frame Height:</label>
-                        <div class="slider-container">
-                            <input type="range" id="frameHeight" min="240" max="2160" step="1">
-                            <input type="number" id="frameHeightNumber" min="240" max="2160" step="1">
-                        </div>
-                        <div class="setting-value">Current: <span id="frameHeightValue">480</span></div>
+                        <label for="resolution">Resolution:</label>
+                        <select id="resolution" class="setting-input">
+                            <option value="720p">720p (1280x720)</option>
+                            <option value="1080p">1080p (1920x1080)</option>
+                            <option value="4k">4K (3840x2160)</option>
+                        </select>
                     </div>
                     <div class="setting-item">
                         <label for="fps">FPS:</label>
                         <div class="slider-container">
-                            <input type="range" id="fps" min="1" max="60" step="1">
-                            <input type="number" id="fpsNumber" min="1" max="60" step="1">
+                            <input type="range" id="fps" min="1" max="90" step="1">
+                            <input type="number" id="fpsNumber" min="1" max="90" step="1">
                         </div>
                         <div class="setting-value">Current: <span id="fpsValue">30</span></div>
+                        <div class="setting-hint">Max FPS: 90 (720p), 60 (1080p), 30 (4K)</div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="dFoV">Diagonal Field of View:</label>
+                        <select id="dFoV" class="setting-input">
+                            <option value="90">90° (Wide)</option>
+                            <option value="78">78° (Medium)</option>
+                            <option value="65">65° (Narrow)</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label for="zoom">Digital Zoom:</label>
+                        <div class="slider-container">
+                            <input type="range" id="zoom" min="1" max="5" step="0.1">
+                            <input type="number" id="zoomNumber" min="1" max="5" step="0.1">
+                        </div>
+                        <div class="setting-value">Current: <span id="zoomValue">1.0</span>x</div>
                     </div>
                     <div class="setting-item">
                         <label for="brightness">Brightness:</label>
@@ -272,15 +287,26 @@
                 const cameraProperties = await cameraResponse.json();
                 originalCameraSettings = { ...cameraProperties };
                 
+                // Set resolution based on current width/height
+                const width = cameraProperties.CAP_PROP_FRAME_WIDTH;
+                const height = cameraProperties.CAP_PROP_FRAME_HEIGHT;
+                let resolution = '720p';
+                if (width === 3840 && height === 2160) resolution = '4k';
+                else if (width === 1920 && height === 1080) resolution = '1080p';
+                document.getElementById('resolution').value = resolution;
+                
+                // Update FPS
+                updateCameraProperty('fps', cameraProperties.CAP_PROP_FPS);
+                
+                // Update dFoV
+                document.getElementById('dFoV').value = cameraProperties.CAP_PROP_DIAGONAL_FOV || '90';
+                
+                // Update zoom
+                updateCameraProperty('zoom', cameraProperties.CAP_PROP_ZOOM || 1);
+                
                 // Update all camera property inputs and their values
                 updateCameraProperty('frameWidth', cameraProperties.CAP_PROP_FRAME_WIDTH);
                 updateCameraProperty('frameHeight', cameraProperties.CAP_PROP_FRAME_HEIGHT);
-                updateCameraProperty('fps', cameraProperties.CAP_PROP_FPS);
-                updateCameraProperty('brightness', cameraProperties.CAP_PROP_BRIGHTNESS);
-                updateCameraProperty('contrast', cameraProperties.CAP_PROP_CONTRAST);
-                updateCameraProperty('saturation', cameraProperties.CAP_PROP_SATURATION);
-                updateCameraProperty('gain', cameraProperties.CAP_PROP_GAIN);
-                updateCameraProperty('exposure', cameraProperties.CAP_PROP_EXPOSURE);
                 
                 document.getElementById('autoExposure').value = cameraProperties.CAP_PROP_AUTO_EXPOSURE;
                 document.getElementById('autoFocus').value = cameraProperties.CAP_PROP_AUTOFOCUS;
@@ -414,6 +440,53 @@
                     console.error('Error resetting camera settings:', error);
                 }
             }
+        });
+
+        // Resolution presets
+        const resolutionPresets = {
+            '720p': { width: 1280, height: 720, maxFps: 90 },
+            '1080p': { width: 1920, height: 1080, maxFps: 60 },
+            '4k': { width: 3840, height: 2160, maxFps: 30 }
+        };
+
+        // Update resolution and FPS based on selected preset
+        document.getElementById('resolution').addEventListener('change', async (e) => {
+            const preset = resolutionPresets[e.target.value];
+            const fpsInput = document.getElementById('fps');
+            const fpsNumber = document.getElementById('fpsNumber');
+            
+            // Update FPS max value
+            fpsInput.max = preset.maxFps;
+            fpsNumber.max = preset.maxFps;
+            
+            // If current FPS is higher than new max, adjust it
+            if (parseInt(fpsInput.value) > preset.maxFps) {
+                fpsInput.value = preset.maxFps;
+                fpsNumber.value = preset.maxFps;
+                await updateCameraProperty('CAP_PROP_FPS', preset.maxFps);
+            }
+            
+            // Update resolution
+            await updateCameraProperty('CAP_PROP_FRAME_WIDTH', preset.width);
+            await updateCameraProperty('CAP_PROP_FRAME_HEIGHT', preset.height);
+        });
+
+        // Add event listener for dFoV
+        document.getElementById('dFoV').addEventListener('change', async (e) => {
+            await updateCameraProperty('CAP_PROP_DIAGONAL_FOV', e.target.value);
+        });
+
+        // Add event listener for zoom
+        document.getElementById('zoom').addEventListener('input', async (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('zoomNumber').value = value;
+            await updateCameraProperty('CAP_PROP_ZOOM', value);
+        });
+
+        document.getElementById('zoomNumber').addEventListener('input', async (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('zoom').value = value;
+            await updateCameraProperty('CAP_PROP_ZOOM', value);
         });
 
         // Load settings when page loads
