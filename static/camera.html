@@ -300,6 +300,9 @@
             try {
                 // Load detector settings
                 const detectorResponse = await fetch('/api/detector/settings');
+                if (!detectorResponse.ok) {
+                    throw new Error('Failed to load detector settings');
+                }
                 const detectorSettings = await detectorResponse.json();
                 originalDetectorSettings = { ...detectorSettings };
                 
@@ -314,71 +317,62 @@
 
                 // Load camera properties
                 const cameraResponse = await fetch('/api/camera/properties');
+                if (!cameraResponse.ok) {
+                    throw new Error('Failed to load camera properties');
+                }
                 const cameraProperties = await cameraResponse.json();
                 originalCameraSettings = { ...cameraProperties };
                 
-                // Update camera properties with scaled values
-                updateCameraProperty('brightness', Math.round(cameraProperties.CAP_PROP_BRIGHTNESS * 100));
-                updateCameraProperty('contrast', Math.round(cameraProperties.CAP_PROP_CONTRAST * 100));
-                updateCameraProperty('saturation', Math.round(cameraProperties.CAP_PROP_SATURATION * 100));
-                updateCameraProperty('gain', Math.round(cameraProperties.CAP_PROP_GAIN));
-                updateCameraProperty('exposure', Math.round(cameraProperties.CAP_PROP_EXPOSURE));
-                updateCameraProperty('zoom', cameraProperties.CAP_PROP_ZOOM);
-                
-                document.getElementById('autoExposure').value = cameraProperties.CAP_PROP_AUTO_EXPOSURE;
-                document.getElementById('autoFocus').value = cameraProperties.CAP_PROP_AUTOFOCUS;
-                document.getElementById('dFoV').value = cameraProperties.CAP_PROP_DIAGONAL_FOV || '65';
+                // Update camera properties
+                updateCameraUI(cameraProperties);
                 
                 console.log('Settings loaded successfully:', cameraProperties);
             } catch (error) {
                 console.error('Error loading settings:', error);
+                alert('Error loading settings. Please refresh the page.');
             }
         }
 
-        // Update a camera property value
-        function updateCameraProperty(property, value) {
-            const slider = document.getElementById(property);
-            const number = document.getElementById(property + 'Number');
-            const valueDisplay = document.getElementById(property + 'Value');
-            
-            slider.value = value;
-            number.value = value;
-            valueDisplay.textContent = value;
-        }
-
-        // Real-time update detector settings
-        async function updateDetectorSetting(setting, value) {
+        // Update camera UI with current values
+        function updateCameraUI(properties) {
             try {
-                const settings = {
-                    [setting]: parseFloat(value)
-                };
-                const response = await fetch('/api/detector/settings', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(settings)
+                // Update sliders and number inputs
+                const cameraProperties = ['brightness', 'contrast', 'saturation', 'gain', 'exposure', 'zoom'];
+                cameraProperties.forEach(prop => {
+                    const slider = document.getElementById(prop);
+                    const number = document.getElementById(prop + 'Number');
+                    const valueDisplay = document.getElementById(prop + 'Value');
+                    
+                    if (slider && number && valueDisplay) {
+                        const value = properties['CAP_PROP_' + prop.toUpperCase()];
+                        if (value !== undefined) {
+                            slider.value = value;
+                            number.value = value;
+                            valueDisplay.textContent = value;
+                        }
+                    }
                 });
-                const result = await response.json();
-                if (result.status === 'success') {
-                    document.getElementById(setting + 'Value').textContent = value;
+
+                // Update select elements
+                if (properties.CAP_PROP_AUTO_EXPOSURE !== undefined) {
+                    document.getElementById('autoExposure').value = properties.CAP_PROP_AUTO_EXPOSURE;
+                }
+                if (properties.CAP_PROP_AUTOFOCUS !== undefined) {
+                    document.getElementById('autoFocus').value = properties.CAP_PROP_AUTOFOCUS;
+                }
+                if (properties.CAP_PROP_DIAGONAL_FOV !== undefined) {
+                    document.getElementById('dFoV').value = properties.CAP_PROP_DIAGONAL_FOV;
                 }
             } catch (error) {
-                console.error('Error updating detector setting:', error);
+                console.error('Error updating camera UI:', error);
             }
         }
 
         // Real-time update camera properties
         async function updateCameraProperty(setting, value) {
             try {
-                let scaledValue = value;
-                // Scale the values appropriately for the camera
-                if (['brightness', 'contrast', 'saturation'].includes(setting)) {
-                    scaledValue = value / 100; // Convert from -100/100 range to -1/1 range
-                }
-                
                 const properties = {
-                    [setting]: scaledValue
+                    [setting]: parseFloat(value)
                 };
                 const response = await fetch('/api/camera/properties', {
                     method: 'POST',
@@ -387,39 +381,24 @@
                     },
                     body: JSON.stringify(properties)
                 });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to update camera property');
+                }
+                
                 const result = await response.json();
                 if (result.status === 'success') {
-                    // Update all current values from the response
-                    Object.entries(result.settings).forEach(([prop, val]) => {
-                        const valueDisplay = document.getElementById(prop.replace('CAP_PROP_', '').toLowerCase() + 'Value');
-                        if (valueDisplay) {
-                            // Scale the values back for display
-                            if (['brightness', 'contrast', 'saturation'].includes(prop.replace('CAP_PROP_', '').toLowerCase())) {
-                                valueDisplay.textContent = Math.round(val * 100);
-                            } else {
-                                valueDisplay.textContent = val;
-                            }
-                        }
-                    });
+                    updateCameraUI(result.settings);
                     console.log('Camera property updated:', setting, value);
+                } else {
+                    throw new Error(result.error || 'Failed to update camera property');
                 }
             } catch (error) {
                 console.error('Error updating camera property:', error);
+                // Revert UI to previous value
+                loadSettings();
             }
         }
-
-        // Add event listeners for real-time updates
-        document.getElementById('movementThreshold').addEventListener('input', (e) => {
-            updateDetectorSetting('movement_threshold', e.target.value);
-        });
-
-        document.getElementById('errorTimeout').addEventListener('input', (e) => {
-            updateDetectorSetting('error_timeout', e.target.value);
-        });
-
-        document.getElementById('stateChangeDelay').addEventListener('input', (e) => {
-            updateDetectorSetting('state_change_delay', e.target.value);
-        });
 
         // Add event listeners for camera properties with debouncing
         const cameraProperties = ['brightness', 'contrast', 'saturation', 'gain', 'exposure', 'zoom'];
@@ -433,7 +412,7 @@
                     clearTimeout(timeout);
                     timeout = setTimeout(() => {
                         updateCameraProperty('CAP_PROP_' + prop.toUpperCase(), value);
-                    }, 100); // 100ms debounce
+                    }, 250); // Increased debounce time to 250ms
                 };
                 
                 slider.addEventListener('input', (e) => {
@@ -458,52 +437,21 @@
             }
         });
 
-        // Save detector settings
-        document.getElementById('saveDetectorSettings').addEventListener('click', async () => {
-            const settings = {
-                movement_threshold: parseFloat(document.getElementById('movementThreshold').value),
-                error_timeout: parseFloat(document.getElementById('errorTimeout').value),
-                state_change_delay: parseFloat(document.getElementById('stateChangeDelay').value)
-            };
-
-            try {
-                const response = await fetch('/api/detector/settings', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(settings)
-                });
-                const result = await response.json();
-                if (result.status === 'success') {
-                    // Save to localStorage
-                    saveSettingsToStorage('detector', settings);
-                    alert('Detector settings saved successfully!');
-                    loadSettings(); // Reload settings to ensure everything is in sync
-                } else {
-                    alert('Error saving detector settings: ' + result.error);
-                }
-            } catch (error) {
-                console.error('Error saving detector settings:', error);
-                alert('Error saving detector settings. Please try again.');
-            }
-        });
-
         // Save camera settings
         document.getElementById('saveCameraSettings').addEventListener('click', async () => {
-            const properties = {
-                CAP_PROP_BRIGHTNESS: parseFloat(document.getElementById('brightness').value) / 100,
-                CAP_PROP_CONTRAST: parseFloat(document.getElementById('contrast').value) / 100,
-                CAP_PROP_SATURATION: parseFloat(document.getElementById('saturation').value) / 100,
-                CAP_PROP_GAIN: parseFloat(document.getElementById('gain').value),
-                CAP_PROP_EXPOSURE: parseFloat(document.getElementById('exposure').value),
-                CAP_PROP_AUTO_EXPOSURE: parseFloat(document.getElementById('autoExposure').value),
-                CAP_PROP_AUTOFOCUS: parseFloat(document.getElementById('autoFocus').value),
-                CAP_PROP_DIAGONAL_FOV: parseFloat(document.getElementById('dFoV').value),
-                CAP_PROP_ZOOM: parseFloat(document.getElementById('zoom').value)
-            };
-
             try {
+                const properties = {
+                    CAP_PROP_BRIGHTNESS: parseFloat(document.getElementById('brightness').value),
+                    CAP_PROP_CONTRAST: parseFloat(document.getElementById('contrast').value),
+                    CAP_PROP_SATURATION: parseFloat(document.getElementById('saturation').value),
+                    CAP_PROP_GAIN: parseFloat(document.getElementById('gain').value),
+                    CAP_PROP_EXPOSURE: parseFloat(document.getElementById('exposure').value),
+                    CAP_PROP_AUTO_EXPOSURE: parseFloat(document.getElementById('autoExposure').value),
+                    CAP_PROP_AUTOFOCUS: parseFloat(document.getElementById('autoFocus').value),
+                    CAP_PROP_DIAGONAL_FOV: parseFloat(document.getElementById('dFoV').value),
+                    CAP_PROP_ZOOM: parseFloat(document.getElementById('zoom').value)
+                };
+
                 const response = await fetch('/api/camera/properties', {
                     method: 'POST',
                     headers: {
@@ -511,51 +459,24 @@
                     },
                     body: JSON.stringify(properties)
                 });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save camera settings');
+                }
+
                 const result = await response.json();
                 if (result.status === 'success') {
-                    // Update all current values from the response
-                    Object.entries(result.settings).forEach(([prop, val]) => {
-                        const valueDisplay = document.getElementById(prop.replace('CAP_PROP_', '').toLowerCase() + 'Value');
-                        if (valueDisplay) {
-                            // Scale the values back for display
-                            if (['brightness', 'contrast', 'saturation'].includes(prop.replace('CAP_PROP_', '').toLowerCase())) {
-                                valueDisplay.textContent = Math.round(val * 100);
-                            } else {
-                                valueDisplay.textContent = val;
-                            }
-                        }
-                    });
+                    updateCameraUI(result.settings);
                     console.log('Camera settings saved:', result.settings);
                     alert('Camera settings saved successfully!');
                 } else {
-                    alert('Error saving camera settings: ' + result.error);
+                    throw new Error(result.error || 'Failed to save camera settings');
                 }
             } catch (error) {
                 console.error('Error saving camera settings:', error);
                 alert('Error saving camera settings. Please try again.');
-            }
-        });
-
-        // Reset detector settings
-        document.getElementById('resetDetectorSettings').addEventListener('click', async () => {
-            if (originalDetectorSettings) {
-                try {
-                    const response = await fetch('/api/detector/settings', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(originalDetectorSettings)
-                    });
-                    const result = await response.json();
-                    if (result.status === 'success') {
-                        // Clear localStorage
-                        localStorage.removeItem('detectorSettings');
-                        loadSettings(); // Reload all settings
-                    }
-                } catch (error) {
-                    console.error('Error resetting detector settings:', error);
-                }
+                // Revert to last known good state
+                loadSettings();
             }
         });
 
@@ -570,21 +491,29 @@
                         },
                         body: JSON.stringify(originalCameraSettings)
                     });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to reset camera settings');
+                    }
+
                     const result = await response.json();
                     if (result.status === 'success') {
-                        // Clear localStorage
-                        localStorage.removeItem('cameraSettings');
-                        loadSettings(); // Reload all settings
+                        updateCameraUI(result.settings);
+                        alert('Camera settings reset to original values');
+                    } else {
+                        throw new Error(result.error || 'Failed to reset camera settings');
                     }
                 } catch (error) {
                     console.error('Error resetting camera settings:', error);
+                    alert('Error resetting camera settings. Please try again.');
+                    // Revert to last known good state
+                    loadSettings();
                 }
             }
         });
 
         // Load settings when page loads
-        loadStoredSettings(); // Load stored settings first
-        loadSettings(); // Then load current settings from server
+        loadSettings();
     </script>
 </body>
 </html> 

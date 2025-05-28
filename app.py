@@ -91,18 +91,18 @@ def detect_available_cameras() -> list:
 
 # Default camera settings optimized for ArUco detection
 DEFAULT_CAMERA_SETTINGS = {
-    'CAP_PROP_FRAME_WIDTH': 1920,  # Higher resolution for better precision
+    'CAP_PROP_FRAME_WIDTH': 1920,
     'CAP_PROP_FRAME_HEIGHT': 1080,
-    'CAP_PROP_FPS': 60,  # Higher FPS for better movement detection
-    'CAP_PROP_BRIGHTNESS': 0.5,
-    'CAP_PROP_CONTRAST': 0.7,  # Increased contrast for better tag detection
-    'CAP_PROP_SATURATION': 0.5,
-    'CAP_PROP_GAIN': 0,
-    'CAP_PROP_EXPOSURE': -4,
-    'CAP_PROP_AUTO_EXPOSURE': 0.25,  # Manual exposure for better control
-    'CAP_PROP_AUTOFOCUS': 0,  # Manual focus for better precision
-    'CAP_PROP_DIAGONAL_FOV': 65,  # Narrower FOV for better detail at distance
-    'CAP_PROP_ZOOM': 1
+    'CAP_PROP_FPS': 60,
+    'CAP_PROP_BRIGHTNESS': 0.0,  # Neutral value
+    'CAP_PROP_CONTRAST': 0.0,    # Neutral value
+    'CAP_PROP_SATURATION': 0.0,  # Neutral value
+    'CAP_PROP_GAIN': 0,          # Neutral value
+    'CAP_PROP_EXPOSURE': -4,     # Default exposure
+    'CAP_PROP_AUTO_EXPOSURE': 0.25,  # Manual exposure
+    'CAP_PROP_AUTOFOCUS': 0,     # Manual focus
+    'CAP_PROP_DIAGONAL_FOV': 65, # Narrow FOV
+    'CAP_PROP_ZOOM': 1           # No zoom
 }
 
 # Settings file path
@@ -114,10 +114,10 @@ def load_camera_settings():
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE, 'r') as f:
                 settings = json.load(f)
-                # Ensure all required properties exist
-                for key, value in DEFAULT_CAMERA_SETTINGS.items():
-                    if key not in settings:
-                        settings[key] = value
+                # Ensure all required properties exist with valid values
+                for key, default_value in DEFAULT_CAMERA_SETTINGS.items():
+                    if key not in settings or settings[key] is None:
+                        settings[key] = default_value
                 return settings
     except Exception as e:
         print(f"Error loading camera settings: {e}")
@@ -128,11 +128,22 @@ def save_camera_settings(settings):
     try:
         # Ensure the settings directory exists
         os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+        
+        # Validate settings before saving
+        validated_settings = {}
+        for key, default_value in DEFAULT_CAMERA_SETTINGS.items():
+            if key in settings and settings[key] is not None:
+                validated_settings[key] = settings[key]
+            else:
+                validated_settings[key] = default_value
+        
         with open(SETTINGS_FILE, 'w') as f:
-            json.dump(settings, f, indent=2)
+            json.dump(validated_settings, f, indent=2)
         print(f"Settings saved to {SETTINGS_FILE}")
+        return True
     except Exception as e:
         print(f"Error saving camera settings: {e}")
+        return False
 
 def initialize_camera(camera_index: Optional[str] = None) -> bool:
     """Initialize camera with the given device path or automatically select one if not specified."""
@@ -741,21 +752,18 @@ async def get_camera_properties():
             content={"error": "No camera initialized"}
         )
     
-    properties = {
-        "CAP_PROP_FRAME_WIDTH": int(detector.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-        "CAP_PROP_FRAME_HEIGHT": int(detector.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-        "CAP_PROP_FPS": int(detector.cap.get(cv2.CAP_PROP_FPS)),
-        "CAP_PROP_BRIGHTNESS": float(detector.cap.get(cv2.CAP_PROP_BRIGHTNESS)),
-        "CAP_PROP_CONTRAST": float(detector.cap.get(cv2.CAP_PROP_CONTRAST)),
-        "CAP_PROP_SATURATION": float(detector.cap.get(cv2.CAP_PROP_SATURATION)),
-        "CAP_PROP_GAIN": float(detector.cap.get(cv2.CAP_PROP_GAIN)),
-        "CAP_PROP_EXPOSURE": float(detector.cap.get(cv2.CAP_PROP_EXPOSURE)),
-        "CAP_PROP_AUTO_EXPOSURE": float(detector.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)),
-        "CAP_PROP_AUTOFOCUS": float(detector.cap.get(cv2.CAP_PROP_AUTOFOCUS)),
-        "CAP_PROP_DIAGONAL_FOV": float(detector.cap.get(cv2.CAP_PROP_DIAGONAL_FOV)),
-        "CAP_PROP_ZOOM": float(detector.cap.get(cv2.CAP_PROP_ZOOM))
-    }
-    return properties
+    try:
+        properties = {}
+        for prop in DEFAULT_CAMERA_SETTINGS.keys():
+            if hasattr(cv2, prop):
+                value = detector.cap.get(getattr(cv2, prop))
+                properties[prop] = value
+        return properties
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 @app.post("/api/camera/properties")
 async def update_camera_properties(properties: dict):
@@ -781,15 +789,20 @@ async def update_camera_properties(properties: dict):
                     print(f"Warning: Failed to set {prop} to {value}")
         
         # Save updated settings
-        save_camera_settings(current_settings)
-        
-        # Get actual current values from camera
-        actual_settings = {}
-        for prop in current_settings.keys():
-            if hasattr(cv2, prop):
-                actual_settings[prop] = detector.cap.get(getattr(cv2, prop))
-        
-        return {"status": "success", "settings": actual_settings}
+        if save_camera_settings(current_settings):
+            # Get actual current values from camera
+            actual_settings = {}
+            for prop in current_settings.keys():
+                if hasattr(cv2, prop):
+                    value = detector.cap.get(getattr(cv2, prop))
+                    actual_settings[prop] = value
+            
+            return {"status": "success", "settings": actual_settings}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Failed to save settings"}
+            )
     except Exception as e:
         return JSONResponse(
             status_code=500,
