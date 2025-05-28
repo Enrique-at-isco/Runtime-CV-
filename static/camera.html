@@ -176,24 +176,6 @@
                 <div class="settings-section">
                     <h3>Camera Properties</h3>
                     <div class="setting-item">
-                        <label for="resolution">Resolution:</label>
-                        <select id="resolution" class="setting-input">
-                            <option value="480p">480p (640x480) - Recommended</option>
-                            <option value="720p">720p (1280x720)</option>
-                            <option value="1080p">1080p (1920x1080)</option>
-                            <option value="4k">4K (3840x2160)</option>
-                        </select>
-                    </div>
-                    <div class="setting-item">
-                        <label for="fps">FPS:</label>
-                        <div class="slider-container">
-                            <input type="range" id="fps" min="1" max="30" step="1">
-                            <input type="number" id="fpsNumber" min="1" max="30" step="1">
-                        </div>
-                        <div class="setting-value">Current: <span id="fpsValue">15</span></div>
-                        <div class="setting-hint">Recommended: 15-20 FPS for stable detection</div>
-                    </div>
-                    <div class="setting-item">
                         <label for="dFoV">Diagonal Field of View:</label>
                         <select id="dFoV" class="setting-input">
                             <option value="90">90° (Wide)</option>
@@ -291,8 +273,6 @@
             
             if (storedCameraSettings) {
                 const settings = JSON.parse(storedCameraSettings);
-                document.getElementById('resolution').value = settings.resolution || '480p';
-                document.getElementById('fps').value = settings.fps || 15;
                 document.getElementById('dFoV').value = settings.dFoV || '90';
                 document.getElementById('zoom').value = settings.zoom || 1;
                 document.getElementById('brightness').value = settings.brightness || 0.5;
@@ -340,20 +320,7 @@
                 
                 // Only update UI if no stored settings exist
                 if (!localStorage.getItem('cameraSettings')) {
-                    // Set resolution based on current width/height
-                    const width = cameraProperties.CAP_PROP_FRAME_WIDTH;
-                    const height = cameraProperties.CAP_PROP_FRAME_HEIGHT;
-                    let resolution = '480p';
-                    if (width === 3840 && height === 2160) resolution = '4k';
-                    else if (width === 1920 && height === 1080) resolution = '1080p';
-                    else if (width === 1280 && height === 720) resolution = '720p';
-                    document.getElementById('resolution').value = resolution;
-                    
-                    // Set default FPS to 15 if not set
-                    const fps = cameraProperties.CAP_PROP_FPS || 15;
-                    updateCameraProperty('fps', fps);
-                    
-                    // Update other camera properties
+                    // Update camera properties
                     updateCameraProperty('brightness', cameraProperties.CAP_PROP_BRIGHTNESS);
                     updateCameraProperty('contrast', cameraProperties.CAP_PROP_CONTRAST);
                     updateCameraProperty('saturation', cameraProperties.CAP_PROP_SATURATION);
@@ -362,6 +329,8 @@
                     
                     document.getElementById('autoExposure').value = cameraProperties.CAP_PROP_AUTO_EXPOSURE;
                     document.getElementById('autoFocus').value = cameraProperties.CAP_PROP_AUTOFOCUS;
+                    document.getElementById('dFoV').value = cameraProperties.CAP_PROP_DIAGONAL_FOV || '90';
+                    document.getElementById('zoom').value = cameraProperties.CAP_PROP_ZOOM || 1;
                 }
             } catch (error) {
                 console.error('Error loading settings:', error);
@@ -487,13 +456,6 @@
         // Save camera settings
         document.getElementById('saveCameraSettings').addEventListener('click', async () => {
             const properties = {
-                CAP_PROP_FRAME_WIDTH: parseInt(document.getElementById('resolution').value === '480p' ? 640 : 
-                    document.getElementById('resolution').value === '720p' ? 1280 :
-                    document.getElementById('resolution').value === '1080p' ? 1920 : 3840),
-                CAP_PROP_FRAME_HEIGHT: parseInt(document.getElementById('resolution').value === '480p' ? 480 :
-                    document.getElementById('resolution').value === '720p' ? 720 :
-                    document.getElementById('resolution').value === '1080p' ? 1080 : 2160),
-                CAP_PROP_FPS: parseInt(document.getElementById('fps').value),
                 CAP_PROP_BRIGHTNESS: parseFloat(document.getElementById('brightness').value),
                 CAP_PROP_CONTRAST: parseFloat(document.getElementById('contrast').value),
                 CAP_PROP_SATURATION: parseFloat(document.getElementById('saturation').value),
@@ -507,8 +469,6 @@
 
             // Save to localStorage
             const storedSettings = {
-                resolution: document.getElementById('resolution').value,
-                fps: document.getElementById('fps').value,
                 dFoV: document.getElementById('dFoV').value,
                 zoom: document.getElementById('zoom').value,
                 brightness: document.getElementById('brightness').value,

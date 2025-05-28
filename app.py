@@ -669,7 +669,9 @@ async def get_camera_properties():
         "CAP_PROP_GAIN": float(detector.cap.get(cv2.CAP_PROP_GAIN)),
         "CAP_PROP_EXPOSURE": float(detector.cap.get(cv2.CAP_PROP_EXPOSURE)),
         "CAP_PROP_AUTO_EXPOSURE": float(detector.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)),
-        "CAP_PROP_AUTOFOCUS": float(detector.cap.get(cv2.CAP_PROP_AUTOFOCUS))
+        "CAP_PROP_AUTOFOCUS": float(detector.cap.get(cv2.CAP_PROP_AUTOFOCUS)),
+        "CAP_PROP_DIAGONAL_FOV": float(detector.cap.get(cv2.CAP_PROP_DIAGONAL_FOV)),
+        "CAP_PROP_ZOOM": float(detector.cap.get(cv2.CAP_PROP_ZOOM))
     }
     return properties
 
