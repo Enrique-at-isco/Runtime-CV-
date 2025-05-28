@@ -650,6 +650,87 @@ async def video_feed():
     return StreamingResponse(generate_frames(),
                             media_type="multipart/x-mixed-replace; boundary=frame")
 
+@app.get("/api/camera/properties")
+async def get_camera_properties():
+    """Get available camera properties and their current values."""
+    if detector is None or detector.cap is None:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No camera initialized"}
+        )
+    
+    properties = {
+        "CAP_PROP_FRAME_WIDTH": int(detector.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+        "CAP_PROP_FRAME_HEIGHT": int(detector.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        "CAP_PROP_FPS": int(detector.cap.get(cv2.CAP_PROP_FPS)),
+        "CAP_PROP_BRIGHTNESS": float(detector.cap.get(cv2.CAP_PROP_BRIGHTNESS)),
+        "CAP_PROP_CONTRAST": float(detector.cap.get(cv2.CAP_PROP_CONTRAST)),
+        "CAP_PROP_SATURATION": float(detector.cap.get(cv2.CAP_PROP_SATURATION)),
+        "CAP_PROP_GAIN": float(detector.cap.get(cv2.CAP_PROP_GAIN)),
+        "CAP_PROP_EXPOSURE": float(detector.cap.get(cv2.CAP_PROP_EXPOSURE)),
+        "CAP_PROP_AUTO_EXPOSURE": float(detector.cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)),
+        "CAP_PROP_AUTOFOCUS": float(detector.cap.get(cv2.CAP_PROP_AUTOFOCUS))
+    }
+    return properties
+
+@app.post("/api/camera/properties")
+async def update_camera_properties(properties: dict):
+    """Update camera properties."""
+    if detector is None or detector.cap is None:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No camera initialized"}
+        )
+    
+    try:
+        for prop, value in properties.items():
+            if hasattr(cv2, prop):
+                detector.cap.set(getattr(cv2, prop), value)
+        return {"status": "success"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.get("/api/detector/settings")
+async def get_detector_settings():
+    """Get current detector settings."""
+    if detector is None:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No detector initialized"}
+        )
+    
+    return {
+        "movement_threshold": detector.movement_threshold,
+        "error_timeout": detector.error_timeout,
+        "state_change_delay": detector.state_change_delay
+    }
+
+@app.post("/api/detector/settings")
+async def update_detector_settings(settings: dict):
+    """Update detector settings."""
+    if detector is None:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No detector initialized"}
+        )
+    
+    try:
+        if "movement_threshold" in settings:
+            detector.movement_threshold = float(settings["movement_threshold"])
+        if "error_timeout" in settings:
+            detector.error_timeout = float(settings["error_timeout"])
+        if "state_change_delay" in settings:
+            detector.state_change_delay = float(settings["state_change_delay"])
+        return {"status": "success"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run(app, host='0.0.0.0', port=8000) 
