@@ -512,6 +512,35 @@
             }
         });
 
+        // Save detector settings
+        document.getElementById('saveDetectorSettings').addEventListener('click', async () => {
+            try {
+                const settings = {
+                    movement_threshold: parseFloat(document.getElementById('movementThreshold').value),
+                    error_timeout: parseFloat(document.getElementById('errorTimeout').value),
+                    state_change_delay: parseFloat(document.getElementById('stateChangeDelay').value)
+                };
+                const response = await fetch('/api/detector/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert('Detector settings saved successfully!');
+                    // Optionally update UI
+                    document.getElementById('movementThresholdValue').textContent = settings.movement_threshold;
+                    document.getElementById('errorTimeoutValue').textContent = settings.error_timeout;
+                    document.getElementById('stateChangeDelayValue').textContent = settings.state_change_delay;
+                } else {
+                    throw new Error(result.error || 'Failed to save detector settings');
+                }
+            } catch (error) {
+                console.error('Error saving detector settings:', error);
+                alert('Error saving detector settings. Please try again.');
+            }
+        });
+
         // Load settings when page loads
         loadSettings();
     </script>

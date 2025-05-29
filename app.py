@@ -181,17 +181,14 @@ def initialize_camera(camera_index: Optional[str] = None) -> bool:
                 success = detector.cap.set(prop_id, value)
                 if not success:
                     print(f"Warning: Failed to set {prop} to {value}")
-        
-        # Set buffer size to 1 to reduce latency
+        # Set buffer size to 1 to reduce latency (do this after opening camera)
         detector.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
         # Verify settings were applied
         current_settings = {}
         for prop in settings.keys():
             if hasattr(cv2, prop):
                 current_settings[prop] = detector.cap.get(getattr(cv2, prop))
         print(f"Current camera settings: {current_settings}")
-        
         return True
     except Exception as e:
         print(f"Error initializing camera: {e}")
@@ -714,12 +711,15 @@ def process_camera_feed():
             time.sleep(1)
 
 def generate_frames():
-    """Generate camera frames for streaming."""
+    """Generate camera frames for streaming with minimal lag."""
     while True:
         if detector is None or detector.cap is None or not detector.cap.isOpened():
             time.sleep(1)
             continue
         try:
+            # Discard all but the latest frame
+            for _ in range(4):
+                detector.cap.grab()
             ret, frame = detector.cap.read()
             if not ret:
                 continue

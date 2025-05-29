@@ -503,7 +503,17 @@ async function updateStateChangeLog(period) {
 async function updateMetrics(period) {
     try {
         const response = await fetch(`/api/metrics/${period}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const data = await response.json();
+        if (!data || !data.state_counts) {
+            console.warn('No metrics data returned from server:', data);
+            showNoDataMessage('metricsChart');
+            showNoDataMessage('hourlyChart');
+            showNoDataMessage('trendChart');
+            return;
+        }
         
         if (data.state_counts) {
             // Update base durations from server data
@@ -561,6 +571,21 @@ async function updateMetrics(period) {
         }
     } catch (error) {
         console.error('Error fetching metrics:', error);
+        showNoDataMessage('metricsChart');
+        showNoDataMessage('hourlyChart');
+        showNoDataMessage('trendChart');
+    }
+}
+
+function showNoDataMessage(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = '16px Arial';
+        ctx.fillStyle = '#888';
+        ctx.textAlign = 'center';
+        ctx.fillText('No Data', canvas.width / 2, canvas.height / 2);
     }
 }
 
@@ -647,6 +672,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.time-scale-tabs').addEventListener('click', (event) => {
         if (event.target.classList.contains('tab-btn')) {
             handleTimeScaleChange(event.target.dataset.period);
+            updateMetrics(event.target.dataset.period); // Ensure metrics update on tab change
         }
     });
     
