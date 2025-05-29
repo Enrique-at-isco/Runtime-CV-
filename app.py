@@ -128,13 +128,19 @@ def save_camera_settings(settings):
     """Save camera settings to file."""
     try:
         # Ensure the settings directory exists
-        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+        settings_dir = os.path.dirname(SETTINGS_FILE)
+        if settings_dir:
+            os.makedirs(settings_dir, exist_ok=True)
         
         # Validate settings before saving
         validated_settings = {}
         for key, default_value in DEFAULT_CAMERA_SETTINGS.items():
             if key in settings and settings[key] is not None:
-                validated_settings[key] = settings[key]
+                # Convert to float if it's a string
+                if isinstance(settings[key], str):
+                    validated_settings[key] = float(settings[key])
+                else:
+                    validated_settings[key] = settings[key]
             else:
                 validated_settings[key] = default_value
         
@@ -783,6 +789,9 @@ async def update_camera_properties(properties: dict):
         for prop, value in properties.items():
             if hasattr(cv2, prop):
                 prop_id = getattr(cv2, prop)
+                # Convert value to float if it's a string
+                if isinstance(value, str):
+                    value = float(value)
                 success = detector.cap.set(prop_id, value)
                 if success:
                     current_settings[prop] = value
@@ -805,6 +814,7 @@ async def update_camera_properties(properties: dict):
                 content={"error": "Failed to save settings"}
             )
     except Exception as e:
+        print(f"Error updating camera properties: {e}")
         return JSONResponse(
             status_code=500,
             content={"error": str(e)}
