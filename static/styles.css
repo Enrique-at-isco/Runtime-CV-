@@ -285,22 +285,39 @@ button {
     display: flex;
 }
 
+.timeline {
+    position: relative;
+    width: 100%;
+    height: 40px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
 .timeline-segment {
     height: 100%;
     transition: width 0.3s ease;
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 4px;
+    cursor: pointer;
 }
 
 .timeline-segment.running {
-    background-color: var(--success-color);
+    background-color: #2ecc71;
 }
 
 .timeline-segment.idle {
-    background-color: var(--warning-color);
+    background-color: #f1c40f;
 }
 
 .timeline-segment.error {
-    background-color: var(--error-color);
+    background-color: #e74c3c;
 }
 
 .timeline-segment.no-data {
@@ -310,15 +327,100 @@ button {
 
 .timeline-segment:hover {
     opacity: 0.9;
+    transform: scaleY(1.1);
+    z-index: 1;
+}
+
+.state-label {
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 4px;
+    pointer-events: none;
+}
+
+.current-time-indicator {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: white;
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+    z-index: 2;
+    pointer-events: none;
 }
 
 .time-markers {
+    position: absolute;
+    bottom: -20px;
+    left: 0;
+    right: 0;
     display: flex;
     justify-content: space-between;
     padding: 0 4px;
-    color: #666;
-    font-size: 0.8em;
-    margin-top: 8px;
+    color: var(--text-color);
+    font-size: 12px;
+}
+
+.time-marker {
+    position: absolute;
+    transform: translateX(-50%);
+    text-align: center;
+    color: var(--text-color);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* Tooltip styles */
+.timeline-segment:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 5px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: pre-line;
+    z-index: 3;
+    pointer-events: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    max-width: 200px;
+    text-align: center;
+}
+
+.timeline-segment:hover::before {
+    content: '';
+    position: absolute;
+    bottom: calc(100% + 3px);
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: rgba(0, 0, 0, 0.9) transparent transparent transparent;
+    z-index: 3;
+    pointer-events: none;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .timeline {
+        background: var(--bg-secondary);
+    }
+    
+    .time-marker {
+        color: var(--text-color);
+    }
+    
+    .timeline-segment.no-data {
+        background-color: #4a5568;
+    }
 }
 
 .legend-container {

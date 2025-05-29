@@ -340,26 +340,39 @@ function updateChronograph(stateData) {
     // Clear existing content
     timeline.innerHTML = '';
 
-    // Sort states by timestamp
-    stateData.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    if (!stateData || stateData.length === 0) {
+        // Show "No Data" message if no states
+        const noDataSegment = document.createElement('div');
+        noDataSegment.className = 'timeline-segment no-data';
+        noDataSegment.style.width = '100%';
+        noDataSegment.title = 'No data available for this period';
+        timeline.appendChild(noDataSegment);
+        return;
+    }
+
+    // Calculate total duration for scaling
+    const firstStateTime = new Date(stateData[0].timestamp);
+    const lastStateTime = new Date(stateData[stateData.length - 1].timestamp);
+    const totalDuration = (lastStateTime - firstStateTime) / 1000;
 
     // Create timeline segments
     stateData.forEach((state, index) => {
         const segment = document.createElement('div');
         segment.className = `timeline-segment ${state.state.toLowerCase()}`;
         
-        // Calculate width based on duration
+        // Calculate width based on duration and total time range
         const duration = state.duration || 0;
-        const width = Math.max(5, Math.min(100, duration / 60)); // Scale width, min 5%, max 100%
+        const width = Math.max(1, Math.min(100, (duration / totalDuration) * 100));
         segment.style.width = `${width}%`;
         
         // Add tooltip with state info
         const startTime = new Date(state.timestamp).toLocaleTimeString();
         const endTime = new Date(new Date(state.timestamp).getTime() + duration * 1000).toLocaleTimeString();
-        segment.title = `${state.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${formatDuration(duration)}`;
+        const durationStr = formatDuration(duration);
+        segment.title = `${state.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${state.description || ''}`;
         
         // Add state label if segment is wide enough
-        if (width > 10) {
+        if (width > 15) {
             const label = document.createElement('span');
             label.className = 'state-label';
             label.textContent = state.state;
@@ -369,23 +382,81 @@ function updateChronograph(stateData) {
         timeline.appendChild(segment);
     });
 
-    // Add current time indicator
-    const now = new Date();
-    const firstStateTime = new Date(stateData[0]?.timestamp || now);
-    const lastStateTime = new Date(stateData[stateData.length - 1]?.timestamp || now);
-    const totalDuration = (lastStateTime - firstStateTime) / 1000;
-    const currentPosition = ((now - firstStateTime) / 1000) / totalDuration * 100;
+    // Add current time indicator if viewing today's data
+    if (currentPeriod === 'today') {
+        const now = new Date();
+        const currentPosition = ((now - firstStateTime) / 1000) / totalDuration * 100;
+        
+        if (currentPosition >= 0 && currentPosition <= 100) {
+            const indicator = document.createElement('div');
+            indicator.className = 'current-time-indicator';
+            indicator.style.left = `${currentPosition}%`;
+            timeline.appendChild(indicator);
+        }
+    }
 
-    const indicator = document.createElement('div');
-    indicator.className = 'current-time-indicator';
-    indicator.style.left = `${Math.min(100, Math.max(0, currentPosition))}%`;
-    timeline.appendChild(indicator);
+    // Add time markers
+    const timeMarkers = document.createElement('div');
+    timeMarkers.className = 'time-markers';
+    
+    // Calculate number of markers based on period
+    let numMarkers;
+    switch (currentPeriod) {
+        case 'today':
+            numMarkers = 5; // Every 2 hours
+            break;
+        case 'week':
+            numMarkers = 5; // One per day
+            break;
+        case 'month':
+            numMarkers = 4; // Weekly
+            break;
+        case 'quarter':
+            numMarkers = 3; // Monthly
+            break;
+        default: // year
+            numMarkers = 4; // Quarterly
+    }
+
+    for (let i = 0; i <= numMarkers; i++) {
+        const marker = document.createElement('div');
+        marker.className = 'time-marker';
+        
+        let time;
+        if (currentPeriod === 'today') {
+            // Show hours for today
+            time = new Date(firstStateTime);
+            time.setHours(7 + (i * 2));
+            marker.textContent = time.toLocaleTimeString([], { hour: 'numeric', hour12: true });
+        } else {
+            // Show dates for other periods
+            time = new Date(firstStateTime);
+            if (currentPeriod === 'week') {
+                time.setDate(time.getDate() + i);
+                marker.textContent = time.toLocaleDateString([], { weekday: 'short' });
+            } else if (currentPeriod === 'month') {
+                time.setDate(1 + (i * 7));
+                marker.textContent = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            } else if (currentPeriod === 'quarter') {
+                time.setMonth(time.getMonth() + i);
+                marker.textContent = time.toLocaleDateString([], { month: 'short' });
+            } else {
+                time.setMonth(i * 3);
+                marker.textContent = time.toLocaleDateString([], { month: 'short' });
+            }
+        }
+        
+        marker.style.left = `${(i / numMarkers) * 100}%`;
+        timeMarkers.appendChild(marker);
+    }
+    
+    timeline.appendChild(timeMarkers);
 }
 
 // Fetch timeline data from the server
 async function fetchTimelineData() {
     try {
-        const response = await fetch('/api/timeline');
+        const response = await fetch(`/api/timeline?period=${currentPeriod}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }

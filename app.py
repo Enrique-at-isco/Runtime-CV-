@@ -849,26 +849,93 @@ async def update_detector_settings(settings: dict):
         )
 
 @app.get("/api/timeline")
-def get_timeline():
+def get_timeline(period: str = "today"):
     db = SessionLocal()
     try:
         now = datetime.now(CST)
-        start_of_day = now.replace(hour=7, minute=0, second=0, microsecond=0)
-        end_of_day = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        
+        # Calculate start and end times based on period
+        if period == "today":
+            start_time = now.replace(hour=7, minute=0, second=0, microsecond=0)
+            end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        elif period == "week":
+            # Start from Monday of current week
+            start_time = now - timedelta(days=now.weekday())
+            start_time = start_time.replace(hour=7, minute=0, second=0, microsecond=0)
+            end_time = start_time + timedelta(days=5, hours=10)  # 5 days, 10 hours (7 AM to 5 PM)
+        elif period == "month":
+            # Start from first day of current month
+            start_time = now.replace(day=1, hour=7, minute=0, second=0, microsecond=0)
+            end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        elif period == "quarter":
+            # Start from first day of current quarter
+            quarter_start = (now.month - 1) // 3 * 3 + 1
+            start_time = now.replace(month=quarter_start, day=1, hour=7, minute=0, second=0, microsecond=0)
+            end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        else:  # year
+            # Start from first day of current year
+            start_time = now.replace(month=1, day=1, hour=7, minute=0, second=0, microsecond=0)
+            end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
+
+        # Get all states within the time range
         events = db.query(MachineState).filter(
-            MachineState.timestamp >= start_of_day,
-            MachineState.timestamp <= end_of_day
+            MachineState.timestamp >= start_time,
+            MachineState.timestamp <= end_time
         ).order_by(MachineState.timestamp.asc()).all()
-        result = [
-            {
+
+        # Calculate durations and fill gaps
+        result = []
+        last_end_time = start_time
+
+        for state in events:
+            state_time = MachineState.ensure_timezone(state.timestamp)
+            
+            # Add gap if there's a time difference
+            if state_time > last_end_time:
+                gap_duration = (state_time - last_end_time).total_seconds()
+                if gap_duration > 0:
+                    result.append({
+                        "timestamp": last_end_time.isoformat(),
+                        "state": "NO_DATA",
+                        "duration": gap_duration,
+                        "description": "No data available",
+                        "tag_id": None
+                    })
+
+            # Calculate duration for current state
+            if state == events[-1]:
+                # For last state, duration is until end_time or now
+                duration = min(
+                    (end_time - state_time).total_seconds(),
+                    (now - state_time).total_seconds()
+                )
+            else:
+                next_state = events[events.index(state) + 1]
+                next_time = MachineState.ensure_timezone(next_state.timestamp)
+                duration = (next_time - state_time).total_seconds()
+
+            result.append({
                 "timestamp": state.timestamp.isoformat(),
                 "state": state.state,
-                "duration": state.duration,
+                "duration": max(0, duration),
                 "description": state.description or "",
                 "tag_id": state.tag_id
-            }
-            for state in events
-        ]
+            })
+
+            last_end_time = state_time + timedelta(seconds=duration)
+
+        # Add final gap if needed
+        if last_end_time < end_time:
+            final_gap_duration = (end_time - last_end_time).total_seconds()
+            if final_gap_duration > 0:
+                result.append({
+                    "timestamp": last_end_time.isoformat(),
+                    "state": "NO_DATA",
+                    "duration": final_gap_duration,
+                    "description": "No data available",
+                    "tag_id": None
+                })
+
         return JSONResponse(content=result)
     finally:
         db.close()
