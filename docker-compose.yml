@@ -18,7 +18,7 @@ services:
       - FLASK_ENV=development
       - FLASK_APP=app.py
       - PYTHONUNBUFFERED=1  # Ensure Python output is sent straight to terminal
-      - DATABASE_PATH=/data/machine_states.db # Set database path
+      - DATABASE_PATH=data/machine_states.db # Set database path
       - HOST=0.0.0.0  # Explicitly set host to bind to all interfaces
     command: uvicorn app:app --host 0.0.0.0 --port 8000  # Added command to run FastAPI
     user: "1000:1000"
