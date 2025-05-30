@@ -934,7 +934,7 @@ async def update_detector_settings(settings: dict):
 def get_timeline(period: str = "today"):
     db = get_db()
     try:
-        now = datetime.now()
+        now = datetime.now(CST)
         # Calculate start and end times based on period
         if period == "today":
             start_time = now.replace(hour=7, minute=0, second=0, microsecond=0)
@@ -955,6 +955,12 @@ def get_timeline(period: str = "today"):
         else:
             return JSONResponse(status_code=400, content={"error": "Invalid period"})
 
+        # Ensure start_time and end_time are timezone-aware
+        if start_time.tzinfo is None:
+            start_time = CST.localize(start_time)
+        if end_time.tzinfo is None:
+            end_time = CST.localize(end_time)
+
         cursor = db.cursor()
         cursor.execute('''
             SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?) ORDER BY timestamp ASC
@@ -964,7 +970,10 @@ def get_timeline(period: str = "today"):
         result = []
         last_end_time = start_time
         for idx, state in enumerate(events):
+            # Parse state_time as timezone-aware
             state_time = datetime.fromisoformat(state['timestamp'])
+            if state_time.tzinfo is None:
+                state_time = CST.localize(state_time)
             # Add gap if there's a time difference
             if state_time > last_end_time:
                 gap_duration = (state_time - last_end_time).total_seconds()
@@ -981,6 +990,8 @@ def get_timeline(period: str = "today"):
                 duration = (end_time - state_time).total_seconds()
             else:
                 next_state_time = datetime.fromisoformat(events[idx + 1]['timestamp'])
+                if next_state_time.tzinfo is None:
+                    next_state_time = CST.localize(next_state_time)
                 duration = (next_state_time - state_time).total_seconds()
             result.append({
                 "timestamp": state['timestamp'],
