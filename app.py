@@ -450,8 +450,7 @@ async def get_metrics(period: str):
     if period == "today":
         start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "week":
-        start_time = now - timedelta(days=now.weekday())
-        start_time = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_time = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "month":
         start_time = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     elif period == "quarter":
@@ -469,7 +468,7 @@ async def get_metrics(period: str):
     # Hourly metrics for today
     hourly_metrics = None
     if period == "today":
-        hourly_metrics = defaultdict(lambda: {"RUNNING": 0, "IDLE": 0, "ERROR": 0})
+        hourly_metrics = {h: {"running_duration": 0, "idle_duration": 0, "error_duration": 0} for h in range(24)}
         db = get_db()
         cursor = db.cursor()
         cursor.execute('''SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?)''', (start_time.isoformat(), now.isoformat()))
@@ -477,13 +476,17 @@ async def get_metrics(period: str):
         for row in rows:
             ts = datetime.fromisoformat(row['timestamp'])
             hour = ts.hour
-            hourly_metrics[hour][row['state']] += float(row['duration'] or 0)
-        hourly_metrics = dict(hourly_metrics)
+            if row['state'] == 'RUNNING':
+                hourly_metrics[hour]['running_duration'] += float(row['duration'] or 0)
+            elif row['state'] == 'IDLE':
+                hourly_metrics[hour]['idle_duration'] += float(row['duration'] or 0)
+            elif row['state'] == 'ERROR':
+                hourly_metrics[hour]['error_duration'] += float(row['duration'] or 0)
 
     # Daily metrics for week/month/quarter/year
     daily_metrics = None
     if period in ["week", "month", "quarter", "year"]:
-        daily_metrics = defaultdict(lambda: {"RUNNING": 0, "IDLE": 0, "ERROR": 0})
+        daily_metrics = {}
         db = get_db()
         cursor = db.cursor()
         cursor.execute('''SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?)''', (start_time.isoformat(), now.isoformat()))
@@ -491,21 +494,37 @@ async def get_metrics(period: str):
         for row in rows:
             ts = datetime.fromisoformat(row['timestamp'])
             day = ts.date().isoformat()
-            daily_metrics[day][row['state']] += float(row['duration'] or 0)
-        daily_metrics = dict(daily_metrics)
+            if day not in daily_metrics:
+                daily_metrics[day] = {"running_duration": 0, "idle_duration": 0, "error_duration": 0, "efficiency": 0}
+            if row['state'] == 'RUNNING':
+                daily_metrics[day]['running_duration'] += float(row['duration'] or 0)
+            elif row['state'] == 'IDLE':
+                daily_metrics[day]['idle_duration'] += float(row['duration'] or 0)
+            elif row['state'] == 'ERROR':
+                daily_metrics[day]['error_duration'] += float(row['duration'] or 0)
+        # Calculate efficiency for each day
+        for day, metrics in daily_metrics.items():
+            total = metrics['running_duration'] + metrics['idle_duration'] + metrics['error_duration']
+            metrics['efficiency'] = round((metrics['running_duration'] / total * 100) if total > 0 else 0, 1)
 
-    # Summary
+    # Summary fields for frontend
     summary = {
-        'total_runtime': state_counts['RUNNING'],
-        'best_day': None,
-        'avg_daily_runtime': 0,
-        'weekly_efficiency': percentages['RUNNING'],
+        'totalRuntime': state_counts['RUNNING'],
+        'efficiency': percentages['RUNNING'],
+        'peakHour': None,
+        'bestDay': None,
+        'avgRuntime': 0,
+        'weeklyEfficiency': percentages['RUNNING'],
     }
+    if hourly_metrics:
+        # Find peak hour for running time
+        peak_hour = max(hourly_metrics.items(), key=lambda x: x[1]['running_duration'])[0]
+        summary['peakHour'] = f"{peak_hour}:00 ({int(hourly_metrics[peak_hour]['running_duration'] // 60)}m)"
     if daily_metrics:
-        best_day = max(daily_metrics.items(), key=lambda x: x[1]['RUNNING'])[0] if daily_metrics else None
-        avg_daily_runtime = sum(day['RUNNING'] for day in daily_metrics.values()) / len(daily_metrics) if daily_metrics else 0
-        summary['best_day'] = best_day
-        summary['avg_daily_runtime'] = avg_daily_runtime
+        best_day = max(daily_metrics.items(), key=lambda x: x[1]['running_duration'])[0] if daily_metrics else None
+        avg_runtime = sum(day['running_duration'] for day in daily_metrics.values()) / len(daily_metrics) if daily_metrics else 0
+        summary['bestDay'] = best_day
+        summary['avgRuntime'] = avg_runtime
 
     return {
         "state_counts": state_counts,
@@ -518,27 +537,44 @@ async def get_metrics(period: str):
         "end_time": now.isoformat()
     }
 
-@app.get("/api/events/today")
-async def get_events_today():
+@app.get("/api/events/{period}")
+async def get_events(period: str, state: str = "all", limit: int = 50):
     now = datetime.now()
-    start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Calculate start time based on period
+    if period == "today":
+        start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "week":
+        start_time = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "month":
+        start_time = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "quarter":
+        quarter_month = ((now.month - 1) // 3) * 3 + 1
+        start_time = now.replace(month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "year":
+        start_time = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        return JSONResponse(status_code=400, content={"error": "Invalid period"})
+
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('''SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?) ORDER BY timestamp ASC''', (start_time.isoformat(), now.isoformat()))
+    if state == "all":
+        cursor.execute('''
+            SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?) ORDER BY timestamp DESC LIMIT ?
+        ''', (start_time.isoformat(), now.isoformat(), limit))
+    else:
+        cursor.execute('''
+            SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?) AND state = ? ORDER BY timestamp DESC LIMIT ?
+        ''', (start_time.isoformat(), now.isoformat(), state.upper(), limit))
     rows = cursor.fetchall()
     events = []
     for row in rows:
-        event = {
+        events.append({
             "timestamp": row['timestamp'],
             "state": row['state'],
             "duration": row['duration'],
             "description": row['description'],
             "tag_id": row['tag_id']
-        }
-        print(f"[EVENT] {event}")
-        if event['duration'] == 0.0:
-            print(f"[WARNING] Zero duration event: {event}")
-        events.append(event)
+        })
     return events
 
 @app.websocket("/ws")
@@ -863,46 +899,39 @@ async def update_detector_settings(settings: dict):
 
 @app.get("/api/timeline")
 def get_timeline(period: str = "today"):
-    db = SessionLocal()
+    db = get_db()
     try:
-        now = datetime.now(CST)
-        
+        now = datetime.now()
         # Calculate start and end times based on period
         if period == "today":
             start_time = now.replace(hour=7, minute=0, second=0, microsecond=0)
             end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
         elif period == "week":
-            # Start from Monday of current week
-            start_time = now - timedelta(days=now.weekday())
-            start_time = start_time.replace(hour=7, minute=0, second=0, microsecond=0)
-            end_time = start_time + timedelta(days=5, hours=10)  # 5 days, 10 hours (7 AM to 5 PM)
+            start_time = (now - timedelta(days=now.weekday())).replace(hour=7, minute=0, second=0, microsecond=0)
+            end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
         elif period == "month":
-            # Start from first day of current month
             start_time = now.replace(day=1, hour=7, minute=0, second=0, microsecond=0)
             end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
         elif period == "quarter":
-            # Start from first day of current quarter
-            quarter_start = (now.month - 1) // 3 * 3 + 1
-            start_time = now.replace(month=quarter_start, day=1, hour=7, minute=0, second=0, microsecond=0)
+            quarter_month = ((now.month - 1) // 3) * 3 + 1
+            start_time = now.replace(month=quarter_month, day=1, hour=7, minute=0, second=0, microsecond=0)
             end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
-        else:  # year
-            # Start from first day of current year
+        elif period == "year":
             start_time = now.replace(month=1, day=1, hour=7, minute=0, second=0, microsecond=0)
             end_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        else:
+            return JSONResponse(status_code=400, content={"error": "Invalid period"})
 
-        # Get all states within the time range
-        events = db.query(MachineState).filter(
-            MachineState.timestamp >= start_time,
-            MachineState.timestamp <= end_time
-        ).order_by(MachineState.timestamp.asc()).all()
+        cursor = db.cursor()
+        cursor.execute('''
+            SELECT * FROM state_changes WHERE datetime(timestamp) BETWEEN datetime(?) AND datetime(?) ORDER BY timestamp ASC
+        ''', (start_time.isoformat(), end_time.isoformat()))
+        events = cursor.fetchall()
 
-        # Calculate durations and fill gaps
         result = []
         last_end_time = start_time
-
-        for state in events:
-            state_time = MachineState.ensure_timezone(state.timestamp)
-            
+        for idx, state in enumerate(events):
+            state_time = datetime.fromisoformat(state['timestamp'])
             # Add gap if there's a time difference
             if state_time > last_end_time:
                 gap_duration = (state_time - last_end_time).total_seconds()
@@ -914,29 +943,20 @@ def get_timeline(period: str = "today"):
                         "description": "No data available",
                         "tag_id": None
                     })
-
             # Calculate duration for current state
-            if state == events[-1]:
-                # For last state, duration is until end_time or now
-                duration = min(
-                    (end_time - state_time).total_seconds(),
-                    (now - state_time).total_seconds()
-                )
+            if idx == len(events) - 1:
+                duration = (end_time - state_time).total_seconds()
             else:
-                next_state = events[events.index(state) + 1]
-                next_time = MachineState.ensure_timezone(next_state.timestamp)
-                duration = (next_time - state_time).total_seconds()
-
+                next_state_time = datetime.fromisoformat(events[idx + 1]['timestamp'])
+                duration = (next_state_time - state_time).total_seconds()
             result.append({
-                "timestamp": state.timestamp.isoformat(),
-                "state": state.state,
+                "timestamp": state['timestamp'],
+                "state": state['state'],
                 "duration": max(0, duration),
-                "description": state.description or "",
-                "tag_id": state.tag_id
+                "description": state['description'] or "",
+                "tag_id": state['tag_id']
             })
-
             last_end_time = state_time + timedelta(seconds=duration)
-
         # Add final gap if needed
         if last_end_time < end_time:
             final_gap_duration = (end_time - last_end_time).total_seconds()
@@ -948,7 +968,6 @@ def get_timeline(period: str = "today"):
                     "description": "No data available",
                     "tag_id": None
                 })
-
         return JSONResponse(content=result)
     finally:
         db.close()
