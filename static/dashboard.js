@@ -340,7 +340,20 @@ function updateChronograph(stateData) {
     // Clear existing content
     timeline.innerHTML = '';
 
-    if (!stateData || stateData.length === 0) {
+    // Workday range for 'today'
+    let workdayStart, workdayEnd;
+    if (currentPeriod === 'today') {
+        const now = new Date();
+        workdayStart = new Date(now);
+        workdayStart.setHours(7, 0, 0, 0);
+        workdayEnd = new Date(now);
+        workdayEnd.setHours(17, 0, 0, 0);
+    } else if (stateData && stateData.length > 0) {
+        workdayStart = new Date(stateData[0].timestamp);
+        workdayEnd = new Date(stateData[stateData.length - 1].timestamp);
+    }
+
+    if (!stateData || stateData.length === 0 || !workdayStart || !workdayEnd) {
         // Show "No Data" message if no states
         const noDataSegment = document.createElement('div');
         noDataSegment.className = 'timeline-segment no-data';
@@ -350,106 +363,103 @@ function updateChronograph(stateData) {
         return;
     }
 
+    // Filter and sort events within workday
+    const filteredStates = (stateData || []).filter(e => {
+        const t = new Date(e.timestamp);
+        return t >= workdayStart && t < workdayEnd;
+    }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    let result = [];
+    let lastEndTime = new Date(workdayStart);
+    for (let i = 0; i < filteredStates.length; i++) {
+        const state = filteredStates[i];
+        const stateTime = new Date(state.timestamp);
+        // Add gap if there's a time difference
+        if (stateTime > lastEndTime) {
+            const gapDuration = (stateTime - lastEndTime) / 1000;
+            if (gapDuration > 0) {
+                result.push({
+                    timestamp: lastEndTime.toISOString(),
+                    state: 'NO_DATA',
+                    duration: gapDuration,
+                    description: 'No data available',
+                    tag_id: null
+                });
+            }
+        }
+        // Calculate duration for current state
+        let duration = state.duration || 0;
+        let nextTime = (i < filteredStates.length - 1) ? new Date(filteredStates[i + 1].timestamp) : workdayEnd;
+        duration = Math.min(duration, (nextTime - stateTime) / 1000);
+        result.push({
+            ...state,
+            duration: Math.max(0, duration)
+        });
+        lastEndTime = new Date(stateTime.getTime() + duration * 1000);
+    }
+    // Add final gap if needed
+    if (lastEndTime < workdayEnd) {
+        const finalGapDuration = (workdayEnd - lastEndTime) / 1000;
+        if (finalGapDuration > 0) {
+            result.push({
+                timestamp: lastEndTime.toISOString(),
+                state: 'NO_DATA',
+                duration: finalGapDuration,
+                description: 'No data available',
+                tag_id: null
+            });
+        }
+    }
+
     // Calculate total duration for scaling
-    const firstStateTime = new Date(stateData[0].timestamp);
-    const lastStateTime = new Date(stateData[stateData.length - 1].timestamp);
-    const totalDuration = (lastStateTime - firstStateTime) / 1000;
+    const totalDuration = (workdayEnd - workdayStart) / 1000;
 
     // Create timeline segments
-    stateData.forEach((state, index) => {
+    result.forEach((state, index) => {
         const segment = document.createElement('div');
         segment.className = `timeline-segment ${state.state.toLowerCase()}`;
-        
-        // Calculate width based on duration and total time range
         const duration = state.duration || 0;
         const width = Math.max(1, Math.min(100, (duration / totalDuration) * 100));
         segment.style.width = `${width}%`;
-        
-        // Add tooltip with state info
         const startTime = new Date(state.timestamp).toLocaleTimeString();
         const endTime = new Date(new Date(state.timestamp).getTime() + duration * 1000).toLocaleTimeString();
         const durationStr = formatDuration(duration);
         segment.title = `${state.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${state.description || ''}`;
-        
-        // Add state label if segment is wide enough
         if (width > 15) {
             const label = document.createElement('span');
             label.className = 'state-label';
             label.textContent = state.state;
             segment.appendChild(label);
         }
-        
         timeline.appendChild(segment);
     });
 
     // Add current time indicator if viewing today's data
     if (currentPeriod === 'today') {
         const now = new Date();
-        const currentPosition = ((now - firstStateTime) / 1000) / totalDuration * 100;
-        
-        if (currentPosition >= 0 && currentPosition <= 100) {
-            const indicator = document.createElement('div');
-            indicator.className = 'current-time-indicator';
-            indicator.style.left = `${currentPosition}%`;
-            timeline.appendChild(indicator);
-        }
-    }
-
-    // Add time markers
-    const timeMarkers = document.createElement('div');
-    timeMarkers.className = 'time-markers';
-    
-    // Calculate number of markers based on period
-    let numMarkers;
-    switch (currentPeriod) {
-        case 'today':
-            numMarkers = 5; // Every 2 hours
-            break;
-        case 'week':
-            numMarkers = 5; // One per day
-            break;
-        case 'month':
-            numMarkers = 4; // Weekly
-            break;
-        case 'quarter':
-            numMarkers = 3; // Monthly
-            break;
-        default: // year
-            numMarkers = 4; // Quarterly
-    }
-
-    for (let i = 0; i <= numMarkers; i++) {
-        const marker = document.createElement('div');
-        marker.className = 'time-marker';
-        
-        let time;
-        if (currentPeriod === 'today') {
-            // Show hours for today
-            time = new Date(firstStateTime);
-            time.setHours(7 + (i * 2));
-            marker.textContent = time.toLocaleTimeString([], { hour: 'numeric', hour12: true });
-        } else {
-            // Show dates for other periods
-            time = new Date(firstStateTime);
-            if (currentPeriod === 'week') {
-                time.setDate(time.getDate() + i);
-                marker.textContent = time.toLocaleDateString([], { weekday: 'short' });
-            } else if (currentPeriod === 'month') {
-                time.setDate(1 + (i * 7));
-                marker.textContent = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
-            } else if (currentPeriod === 'quarter') {
-                time.setMonth(time.getMonth() + i);
-                marker.textContent = time.toLocaleDateString([], { month: 'short' });
-            } else {
-                time.setMonth(i * 3);
-                marker.textContent = time.toLocaleDateString([], { month: 'short' });
+        if (now >= workdayStart && now <= workdayEnd) {
+            const currentPosition = ((now - workdayStart) / 1000) / totalDuration * 100;
+            if (currentPosition >= 0 && currentPosition <= 100) {
+                const indicator = document.createElement('div');
+                indicator.className = 'current-time-indicator';
+                indicator.style.left = `${currentPosition}%`;
+                timeline.appendChild(indicator);
             }
         }
-        
-        marker.style.left = `${(i / numMarkers) * 100}%`;
+    }
+
+    // Add time markers for 7am-5pm
+    const timeMarkers = document.createElement('div');
+    timeMarkers.className = 'time-markers';
+    for (let hour = 7; hour <= 17; hour += 2) {
+        const marker = document.createElement('div');
+        marker.className = 'time-marker';
+        const t = new Date(workdayStart);
+        t.setHours(hour, 0, 0, 0);
+        marker.textContent = t.toLocaleTimeString([], { hour: 'numeric', hour12: true });
+        marker.style.left = `${((hour - 7) / 10) * 100}%`;
         timeMarkers.appendChild(marker);
     }
-    
     timeline.appendChild(timeMarkers);
 }
 

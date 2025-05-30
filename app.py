@@ -20,6 +20,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from models import SessionLocal, MachineState, CST
+import pytz
 
 app = FastAPI()
 
@@ -343,23 +344,43 @@ def get_ip():
     except:
         return "localhost"
 
+CST = pytz.timezone('America/Chicago')
+
 def save_state_change(state: str, duration: float, description: str = None, tag_id: int = None):
+    """Save a state change to the database.
+    
+    Args:
+        state: The new state (RUNNING, IDLE, or ERROR)
+        duration: The duration of the previous state in seconds
+        description: Optional description of the state
+        tag_id: Optional tag ID associated with the state
+    """
     db = get_db()
     cursor = db.cursor()
-    # Update the previous state's duration if duration > 0
-    if duration > 0:
+    try:
+        # If duration > 0, this is updating the previous state's duration
+        if duration > 0:
+            cursor.execute('''
+                UPDATE state_changes
+                SET duration = ?
+                WHERE id = (SELECT id FROM state_changes ORDER BY timestamp DESC LIMIT 1)
+            ''', (duration,))
+            db.commit()
+            print(f"[DB] Updated previous state duration to {duration}s")
+        
+        # Insert the new state with 0 duration, using CST with timezone info
+        now_cst = datetime.now(CST)
         cursor.execute('''
-            UPDATE state_changes
-            SET duration = ?
-            WHERE id = (SELECT id FROM state_changes ORDER BY timestamp DESC LIMIT 1)
-        ''', (duration,))
+            INSERT INTO state_changes (timestamp, state, description, tag_id, duration)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (now_cst.isoformat(), state, description, tag_id, 0.0))
         db.commit()
-    # Insert the new state (duration 0 for now, will be updated on next state change)
-    cursor.execute('''
-        INSERT INTO state_changes (timestamp, state, description, tag_id, duration)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (datetime.now().isoformat(), state, description, tag_id, 0.0))
-    db.commit()
+        print(f"[DB] Inserted new state: {state} at {now_cst.isoformat()}")
+    except Exception as e:
+        print(f"[DB] Error saving state change: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 @app.on_event("startup")
 async def startup_event():
@@ -710,6 +731,11 @@ def process_camera_feed():
     frame_count = 0
     process_every_n_frames = 2  # Process every 2nd frame for better responsiveness
     
+    # Initialize state tracking
+    state_start_time = datetime.now()
+    current_state = None
+    last_tag_id = None
+    
     while True:
         try:
             if detector is None or detector.cap is None or not detector.cap.isOpened():
@@ -727,16 +753,23 @@ def process_camera_feed():
             # Process frame with ArUco detector
             state, tag_id, _ = detector.detect_state(frame)
             
-            # Update state if changed
-            if state != current_state:
-                print(f"[StateChange] State changed from {current_state} to {state}, tag_id={tag_id}")
-                if state_start_time is not None:
+            # Handle initial state or state change
+            if current_state is None or state != current_state:
+                # If this is not the first state, save the previous state's duration
+                if current_state is not None:
                     duration = int((datetime.now() - state_start_time).total_seconds())
                     save_state_change(current_state, duration, get_state_description(current_state), last_tag_id)
                     print(f"[DB] Saved state {current_state} with duration {duration}s")
+                
+                # Update current state and start time
                 current_state = state
                 state_start_time = datetime.now()
                 last_tag_id = tag_id
+                
+                # Save the new state with 0 duration (will be updated on next state change)
+                save_state_change(current_state, 0, get_state_description(current_state), tag_id)
+                print(f"[DB] Started new state {current_state}")
+                
                 # Broadcast state change to all connected clients
                 asyncio.run(manager.broadcast({
                     'state': current_state,
