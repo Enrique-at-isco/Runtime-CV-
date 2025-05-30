@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
 import pytz
 import logging
+import os
 from typing import Dict, List, Optional, Any
 
 # Configure logging
@@ -136,10 +137,9 @@ class MachineState(Base):
             logger.error(f"Error updating durations: {e}")
             db.rollback()
 
-# SQLite database URL
-DATABASE_URL = "sqlite:///./machine_states.db"
+# Use the DATABASE_PATH environment variable, defaulting to data/machine_states.db
+DATABASE_URL = f"sqlite:///{os.getenv('DATABASE_PATH', 'data/machine_states.db')}"
 
-# Create engine with connection pooling and timeout
 engine = create_engine(
     DATABASE_URL,
     connect_args={
