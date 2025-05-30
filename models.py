@@ -244,3 +244,6 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor.execute("PRAGMA cache_size=10000")  # Larger cache
     cursor.execute("PRAGMA temp_store=MEMORY")  # Store temp tables in memory
     cursor.close() 
+
+# Ensure tables are created on import
+init_db()
