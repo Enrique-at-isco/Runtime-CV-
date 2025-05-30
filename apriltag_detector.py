@@ -79,6 +79,10 @@ class ArUcoStateDetector:
                      'CNC error - Tag detection failed']
         }
 
+        # In __init__
+        self.position_history = []
+        self.position_history_size = 5  # Number of frames to average over
+
     def setup_camera(self):
         """Set up camera with optimal parameters for performance."""
         try:
@@ -431,6 +435,7 @@ class ArUcoStateDetector:
             
             current_time = datetime.now(CST)
             movement = 0.0
+            avg_movement = 0.0
             state_changed = False
             tag_id = None
 
@@ -444,11 +449,26 @@ class ArUcoStateDetector:
                     tag_id = int(ids[0][0])
                     self.last_tag_id = tag_id
                 
-                # Calculate movement
-                movement = self._calculate_movement(current_position)
-                
-                # Determine new state based on movement
-                new_state = 'RUNNING' if movement > self.movement_threshold else 'IDLE'
+                # Add current position to history
+                self.position_history.append(current_position)
+                if len(self.position_history) > self.position_history_size:
+                    self.position_history.pop(0)
+
+                # Calculate average movement over the buffer
+                if len(self.position_history) > 1:
+                    movements = [
+                        math.sqrt(
+                            (self.position_history[i][0] - self.position_history[i-1][0])**2 +
+                            (self.position_history[i][1] - self.position_history[i-1][1])**2
+                        )
+                        for i in range(1, len(self.position_history))
+                    ]
+                    avg_movement = sum(movements) / len(movements)
+                else:
+                    avg_movement = 0.0
+
+                # Use average movement for state decision
+                new_state = 'RUNNING' if avg_movement > self.movement_threshold else 'IDLE'
                 state_changed = self._update_state(new_state, current_time)
                 
                 self.last_position = current_position
@@ -466,7 +486,7 @@ class ArUcoStateDetector:
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                            1, (0, 255, 0), 2)
                 
-                cv2.putText(frame, f"Movement: {movement:.1f}",
+                cv2.putText(frame, f"Avg Movement: {avg_movement:.2f}",
                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX,
                            1, (0, 255, 0), 2)
             else:
@@ -474,6 +494,7 @@ class ArUcoStateDetector:
                     (current_time - self.last_detection_time).total_seconds() > self.error_timeout):
                     state_changed = self._update_state('ERROR', current_time)
                     self.last_position = None
+                    self.position_history = []
 
             return self.current_state, tag_id, frame
 
