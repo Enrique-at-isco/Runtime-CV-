@@ -384,6 +384,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Database setup
 def get_db():
     db_path = os.getenv('DATABASE_PATH', 'machine_states.db')
+    db_dir = os.path.dirname(db_path)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
     db = sqlite3.connect(db_path)
     db.row_factory = sqlite3.Row
     return db
