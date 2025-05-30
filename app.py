@@ -21,6 +21,7 @@ import sys
 from collections import defaultdict
 from models import SessionLocal, MachineState, CST
 import pytz
+import threading
 
 app = FastAPI()
 
@@ -210,6 +211,8 @@ SERVICE_REGISTRY_FILE = "data/service_registry.json"
 current_state = 'IDLE'
 last_tag_id = None
 state_start_time = None
+latest_frame = None
+frame_lock = threading.Lock()
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -727,7 +730,7 @@ def get_state_description(state: str) -> str:
 
 def process_camera_feed():
     """Process camera feed with optimized settings for ArUco detection."""
-    global current_state, last_tag_id, state_start_time
+    global current_state, last_tag_id, state_start_time, latest_frame
     frame_count = 0
     process_every_n_frames = 2  # Process every 2nd frame for better responsiveness
     
@@ -745,7 +748,10 @@ def process_camera_feed():
             ret, frame = detector.cap.read()
             if not ret:
                 continue
-                
+            # Store the latest frame for video streaming
+            with frame_lock:
+                latest_frame = frame.copy()
+            
             frame_count += 1
             if frame_count % process_every_n_frames != 0:
                 continue
@@ -784,16 +790,14 @@ def process_camera_feed():
 
 def generate_frames():
     """Generate camera frames for streaming with minimal lag."""
+    global latest_frame
     while True:
-        if detector is None or detector.cap is None or not detector.cap.isOpened():
-            time.sleep(1)
-            continue
         try:
-            # Discard all but the latest frame
-            for _ in range(4):
-                detector.cap.grab()
-            ret, frame = detector.cap.read()
-            if not ret:
+            # Serve the latest frame from the detection loop
+            with frame_lock:
+                frame = latest_frame.copy() if latest_frame is not None else None
+            if frame is None:
+                time.sleep(0.01)
                 continue
             # Get state, tag_id, and frame with bounding box
             state, tag_id, frame = detector.detect_state(frame)
@@ -804,12 +808,12 @@ def generate_frames():
             cv2.putText(frame, state_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             # Convert frame to JPEG
             ret, buffer = cv2.imencode('.jpg', frame)
-            frame = buffer.tobytes()
+            frame_bytes = buffer.tobytes()
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         except Exception as e:
             print(f"Error generating frame: {e}")
-            time.sleep(1)
+            time.sleep(0.01)
 
 @app.get("/camera")
 async def camera_view():
