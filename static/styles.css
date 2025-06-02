@@ -357,22 +357,19 @@ button {
 }
 
 .time-markers {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -24px;
-    height: 20px;
+    display: flex;
+    justify-content: space-between;
     width: 100%;
+    margin-top: 8px;
+    font-size: 13px;
+    color: #888;
     pointer-events: none;
 }
 
 .time-marker {
-    position: absolute;
-    transform: translateX(-50%);
+    flex: 1 1 0;
     text-align: center;
-    color: var(--text-color);
-    font-size: 12px;
-    white-space: nowrap;
+    position: relative;
 }
 
 /* Tooltip styles */
