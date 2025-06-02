@@ -340,6 +340,9 @@ function updateChronograph(stateData) {
     // Clear existing content
     timeline.innerHTML = '';
     timeline.style.position = 'relative';
+    timeline.style.display = 'flex';
+    timeline.style.flexDirection = 'column';
+    timeline.style.alignItems = 'stretch';
 
     // Workday range for 'today'
     let workdayStart, workdayEnd;
@@ -358,8 +361,9 @@ function updateChronograph(stateData) {
         // Show "No Data" message if no states
         const noDataSegment = document.createElement('div');
         noDataSegment.className = 'timeline-segment no-data';
-        noDataSegment.style.width = '100%';
+        noDataSegment.style.flex = '1 1 0';
         noDataSegment.title = 'No data available for this period';
+        noDataSegment.style.height = '32px';
         timeline.appendChild(noDataSegment);
         return;
     }
@@ -370,27 +374,13 @@ function updateChronograph(stateData) {
         return t >= workdayStart && t < workdayEnd;
     }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-    // Build timeline segments (same logic as PDF, but last segment ends at now)
-    let result = [];
-    let lastEndTime = new Date(workdayStart);
-    const now = new Date();
+    // Merge adjacent identical states
+    let merged = [];
+    let last = null;
+    let now = new Date();
     for (let i = 0; i < sortedStates.length; i++) {
         const state = sortedStates[i];
         const stateTime = new Date(state.timestamp);
-        // Add gap if there's a time difference
-        if (stateTime > lastEndTime) {
-            const gapDuration = (stateTime - lastEndTime) / 1000;
-            if (gapDuration > 0) {
-                result.push({
-                    timestamp: lastEndTime.toISOString(),
-                    state: 'NO_DATA',
-                    duration: gapDuration,
-                    description: 'No data available',
-                    tag_id: null
-                });
-            }
-        }
-        // Calculate duration for current state
         let duration = state.duration || 0;
         let nextTime;
         if (i < sortedStates.length - 1) {
@@ -401,93 +391,100 @@ function updateChronograph(stateData) {
             const segmentEnd = (now < workdayEnd ? now : workdayEnd);
             duration = Math.max(0, (segmentEnd - stateTime) / 1000);
         }
-        result.push({
-            ...state,
-            duration: Math.max(0, duration),
-            _isCurrent: i === sortedStates.length - 1 // mark last segment
-        });
-        lastEndTime = new Date(stateTime.getTime() + duration * 1000);
+        if (last && last.state === state.state && last.endTime.getTime() === stateTime.getTime()) {
+            last.duration += duration;
+            last.endTime = new Date(stateTime.getTime() + duration * 1000);
+        } else {
+            last = {
+                state: state.state,
+                startTime: stateTime,
+                endTime: new Date(stateTime.getTime() + duration * 1000),
+                duration: duration,
+                description: state.description,
+                tag_id: state.tag_id
+            };
+            merged.push(last);
+        }
     }
-    // Add final gap if needed
-    if (lastEndTime < workdayEnd) {
-        const finalGapDuration = (workdayEnd - lastEndTime) / 1000;
-        if (finalGapDuration > 0) {
-            result.push({
-                timestamp: lastEndTime.toISOString(),
+
+    // Fill gaps with NO_DATA
+    let timelineBlocks = [];
+    let lastEnd = new Date(workdayStart);
+    for (let i = 0; i < merged.length; i++) {
+        const block = merged[i];
+        if (block.startTime > lastEnd) {
+            timelineBlocks.push({
                 state: 'NO_DATA',
-                duration: finalGapDuration,
+                startTime: new Date(lastEnd),
+                endTime: new Date(block.startTime),
+                duration: (block.startTime - lastEnd) / 1000,
                 description: 'No data available',
                 tag_id: null
             });
         }
+        timelineBlocks.push(block);
+        lastEnd = block.endTime;
+    }
+    if (lastEnd < workdayEnd) {
+        timelineBlocks.push({
+            state: 'NO_DATA',
+            startTime: new Date(lastEnd),
+            endTime: new Date(workdayEnd),
+            duration: (workdayEnd - lastEnd) / 1000,
+            description: 'No data available',
+            tag_id: null
+        });
     }
 
     // Calculate total duration for scaling
     const totalDuration = (workdayEnd - workdayStart) / 1000;
 
-    // Use absolute positioning for segments
-    timeline.style.height = '40px';
-    timeline.style.minWidth = '100%';
-    timeline.style.background = 'none';
+    // Timeline bar (flex row)
+    const bar = document.createElement('div');
+    bar.className = 'timeline-bar';
+    bar.style.display = 'flex';
+    bar.style.width = '100%';
+    bar.style.height = '32px';
+    bar.style.position = 'relative';
 
-    result.forEach((state, index) => {
-        const segment = document.createElement('div');
-        segment.className = `timeline-segment ${state.state.toLowerCase().replaceAll('_', '-')}`;
-        segment.style.position = 'absolute';
-        segment.style.top = '0';
-        segment.style.bottom = '0';
-        const duration = state.duration || 0;
-        const stateStart = new Date(state.timestamp);
-        const leftPercent = ((stateStart - workdayStart) / 1000) / totalDuration * 100;
-        let widthPercent = (duration / totalDuration) * 100;
-        // Ensure minimum width for visibility
-        if (widthPercent < 0.2 && widthPercent > 0) widthPercent = 0.2;
-        segment.style.left = `${leftPercent}%`;
-        segment.style.width = `${widthPercent}%`;
-        segment.style.height = '100%';
-        segment.style.cursor = 'pointer';
-        // Remove state label for all segments (no text inside bars)
-        // Only show tooltip on hover
-        const startTime = stateStart.toLocaleTimeString();
-        let endTime;
-        let durationStr;
-        if (state._isCurrent && state.state !== 'NO_DATA') {
-            endTime = (now < workdayEnd ? now : workdayEnd).toLocaleTimeString();
-            durationStr = formatDuration(duration);
-        } else {
-            endTime = new Date(stateStart.getTime() + duration * 1000).toLocaleTimeString();
-            durationStr = formatDuration(duration);
-        }
-        segment.title = `${state.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${state.description || ''}`;
-        timeline.appendChild(segment);
+    timelineBlocks.forEach((block, index) => {
+        const seg = document.createElement('div');
+        seg.className = `timeline-segment ${block.state.toLowerCase().replaceAll('_', '-')}`;
+        seg.style.flex = `${block.duration / totalDuration} 1 0`;
+        seg.style.height = '100%';
+        seg.style.position = 'relative';
+        seg.style.minWidth = '2px';
+        seg.style.cursor = 'pointer';
+        // Tooltip
+        const startTime = block.startTime.toLocaleTimeString();
+        const endTime = block.endTime.toLocaleTimeString();
+        const durationStr = formatDuration(block.duration);
+        seg.title = `${block.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${block.description || ''}`;
+        bar.appendChild(seg);
     });
 
-    // Add current time indicator if viewing today's data
-    if (currentPeriod === 'today') {
-        if (now >= workdayStart && now <= workdayEnd) {
-            const currentPosition = ((now - workdayStart) / 1000) / totalDuration * 100;
-            if (currentPosition >= 0 && currentPosition <= 100) {
-                const indicator = document.createElement('div');
-                indicator.className = 'current-time-indicator';
-                indicator.style.position = 'absolute';
-                indicator.style.top = '0';
-                indicator.style.bottom = '0';
-                indicator.style.width = '2px';
-                indicator.style.left = `${currentPosition}%`;
-                indicator.style.background = 'white';
-                indicator.style.zIndex = '2';
-                timeline.appendChild(indicator);
-            }
-        }
+    // Add hour dividers
+    for (let hour = 7; hour <= 17; hour++) {
+        if (hour === 7) continue; // skip left edge
+        const divider = document.createElement('div');
+        divider.className = 'timeline-hour-divider';
+        divider.style.position = 'absolute';
+        divider.style.left = `${((hour - 7) / 10) * 100}%`;
+        divider.style.top = '0';
+        divider.style.bottom = '0';
+        divider.style.width = '1px';
+        divider.style.background = '#e5e7eb';
+        divider.style.zIndex = '2';
+        bar.appendChild(divider);
     }
+    timeline.appendChild(bar);
 
-    // Add time markers for 7am-5pm (same as PDF)
+    // Add time markers below
     const timeMarkers = document.createElement('div');
     timeMarkers.className = 'time-markers';
     for (let hour = 7; hour <= 17; hour++) {
         const marker = document.createElement('div');
         marker.className = 'time-marker';
-        // Format as '7 AM', '8 AM', etc.
         let displayHour = hour > 12 ? hour - 12 : hour;
         let ampm = hour >= 12 ? 'PM' : 'AM';
         marker.textContent = `${displayHour} ${ampm}`;
