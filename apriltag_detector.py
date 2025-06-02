@@ -82,6 +82,10 @@ class ArUcoStateDetector:
         # In __init__
         self.position_history = []
         self.position_history_size = 5  # Number of frames to average over
+        self.last_state_change_time = None
+        self.last_movement_time = None
+        self.min_running_hold_time = 10  # seconds: must be below threshold this long to switch to IDLE
+        self.min_idle_hold_time = 2     # seconds: must be above threshold this long to switch to RUNNING
 
     def setup_camera(self):
         """Set up camera with optimal parameters for performance."""
@@ -434,10 +438,9 @@ class ArUcoStateDetector:
                 corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
             
             current_time = datetime.now(CST)
-            movement = 0.0
             avg_movement = 0.0
-            state_changed = False
             tag_id = None
+            state_changed = False
 
             if len(corners) > 0:
                 # Use the first detected marker
@@ -467,10 +470,38 @@ class ArUcoStateDetector:
                 else:
                     avg_movement = 0.0
 
-                # Use average movement for state decision
-                new_state = 'RUNNING' if avg_movement > self.movement_threshold else 'IDLE'
-                state_changed = self._update_state(new_state, current_time)
-                
+                now_ts = time.time()
+                if self.last_state_change_time is None:
+                    self.last_state_change_time = now_ts
+                if self.last_movement_time is None:
+                    self.last_movement_time = now_ts
+
+                # Debouncing logic
+                if self.current_state == 'RUNNING':
+                    if avg_movement <= self.movement_threshold:
+                        # Only switch to IDLE if below threshold for min_running_hold_time
+                        if (now_ts - self.last_movement_time) >= self.min_running_hold_time:
+                            state_changed = self._update_state('IDLE', current_time)
+                            self.last_state_change_time = now_ts
+                        # else: stay in RUNNING
+                    else:
+                        self.last_movement_time = now_ts  # reset timer if movement resumes
+                elif self.current_state == 'IDLE':
+                    if avg_movement > self.movement_threshold:
+                        # Only switch to RUNNING if above threshold for min_idle_hold_time
+                        if (now_ts - self.last_movement_time) >= self.min_idle_hold_time:
+                            state_changed = self._update_state('RUNNING', current_time)
+                            self.last_state_change_time = now_ts
+                        # else: stay in IDLE
+                    else:
+                        self.last_movement_time = now_ts  # reset timer if movement stops
+                else:
+                    # For ERROR or other states, use original logic
+                    new_state = 'RUNNING' if avg_movement > self.movement_threshold else 'IDLE'
+                    state_changed = self._update_state(new_state, current_time)
+                    self.last_state_change_time = now_ts
+                    self.last_movement_time = now_ts
+
                 self.last_position = current_position
                 self.last_detection_time = current_time
 
@@ -479,13 +510,13 @@ class ArUcoStateDetector:
                 center = (int(current_position[0]), int(current_position[1]))
                 cv2.circle(frame, center, 5, (0, 255, 0), -1)
                 
+                # Overlay: show state and pending state clearly
                 state_text = f"State: {self.current_state}"
-                if self.pending_state:
-                    state_text += f" (Pending: {self.pending_state})"
+                if self.pending_state and self.pending_state != self.current_state:
+                    state_text += f" (pending {self.pending_state})"
                 cv2.putText(frame, state_text,
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                            1, (0, 255, 0), 2)
-                
                 cv2.putText(frame, f"Avg Movement: {avg_movement:.2f}",
                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX,
                            1, (0, 255, 0), 2)
@@ -495,6 +526,8 @@ class ArUcoStateDetector:
                     state_changed = self._update_state('ERROR', current_time)
                     self.last_position = None
                     self.position_history = []
+                    self.last_state_change_time = None
+                    self.last_movement_time = None
 
             return self.current_state, tag_id, frame
 
