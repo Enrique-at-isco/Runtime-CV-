@@ -339,6 +339,7 @@ function updateChronograph(stateData) {
 
     // Clear existing content
     timeline.innerHTML = '';
+    timeline.style.position = 'relative';
 
     // Workday range for 'today'
     let workdayStart, workdayEnd;
@@ -415,18 +416,30 @@ function updateChronograph(stateData) {
     // Calculate total duration for scaling
     const totalDuration = (workdayEnd - workdayStart) / 1000;
 
-    // Create timeline segments (with tooltips)
+    // Use absolute positioning for segments
+    timeline.style.height = '40px';
+    timeline.style.minWidth = '100%';
+    timeline.style.background = 'none';
+
     result.forEach((state, index) => {
         const segment = document.createElement('div');
         segment.className = `timeline-segment ${state.state.toLowerCase()}`;
+        segment.style.position = 'absolute';
+        segment.style.top = '0';
+        segment.style.bottom = '0';
         const duration = state.duration || 0;
-        const width = Math.max(1, Math.min(100, (duration / totalDuration) * 100));
-        segment.style.width = `${width}%`;
-        const startTime = new Date(state.timestamp).toLocaleTimeString();
-        const endTime = new Date(new Date(state.timestamp).getTime() + duration * 1000).toLocaleTimeString();
+        const stateStart = new Date(state.timestamp);
+        const leftPercent = ((stateStart - workdayStart) / 1000) / totalDuration * 100;
+        const widthPercent = (duration / totalDuration) * 100;
+        segment.style.left = `${leftPercent}%`;
+        segment.style.width = `${widthPercent}%`;
+        segment.style.height = '100%';
+        segment.style.cursor = 'pointer';
+        const startTime = stateStart.toLocaleTimeString();
+        const endTime = new Date(stateStart.getTime() + duration * 1000).toLocaleTimeString();
         const durationStr = formatDuration(duration);
         segment.title = `${state.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${state.description || ''}`;
-        if (width > 15) {
+        if (widthPercent > 5) {
             const label = document.createElement('span');
             label.className = 'state-label';
             label.textContent = state.state;
@@ -443,7 +456,13 @@ function updateChronograph(stateData) {
             if (currentPosition >= 0 && currentPosition <= 100) {
                 const indicator = document.createElement('div');
                 indicator.className = 'current-time-indicator';
+                indicator.style.position = 'absolute';
+                indicator.style.top = '0';
+                indicator.style.bottom = '0';
+                indicator.style.width = '2px';
                 indicator.style.left = `${currentPosition}%`;
+                indicator.style.background = 'white';
+                indicator.style.zIndex = '2';
                 timeline.appendChild(indicator);
             }
         }
@@ -452,9 +471,22 @@ function updateChronograph(stateData) {
     // Add time markers for 7am-5pm (same as PDF)
     const timeMarkers = document.createElement('div');
     timeMarkers.className = 'time-markers';
+    timeMarkers.style.position = 'absolute';
+    timeMarkers.style.left = '0';
+    timeMarkers.style.right = '0';
+    timeMarkers.style.bottom = '-20px';
+    timeMarkers.style.height = '20px';
+    timeMarkers.style.width = '100%';
+    timeMarkers.style.pointerEvents = 'none';
     for (let hour = 7; hour <= 17; hour++) {
         const marker = document.createElement('div');
         marker.className = 'time-marker';
+        marker.style.position = 'absolute';
+        marker.style.transform = 'translateX(-50%)';
+        marker.style.textAlign = 'center';
+        marker.style.color = 'var(--text-color)';
+        marker.style.fontSize = '12px';
+        marker.style.whiteSpace = 'nowrap';
         const t = new Date(workdayStart);
         t.setHours(hour, 0, 0, 0);
         marker.textContent = t.toLocaleTimeString([], { hour: 'numeric', hour12: true });
