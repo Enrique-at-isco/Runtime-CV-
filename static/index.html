@@ -16,9 +16,10 @@
                     <button id="settingsBtn" class="settings-btn" onclick="document.getElementById('settingsModal').classList.add('show')">
                         <i class="fas fa-cog"></i>
                     </button>
-                    <h1>CNC Runtime Dashboard</h1>
+                    <a href="/" style="text-decoration:none;color:inherit;"><h1>CNC Runtime Dashboard</h1></a>
                 </div>
                 <div class="header-buttons">
+                    <a href="/camera" id="cameraViewBtn" class="export-data-btn" style="text-decoration:none;display:inline-block;"><i class="fas fa-video"></i> Camera View</a>
                     <button id="exportDataBtn" class="export-data-btn" onclick="exportStateData()">Export State Data</button>
                     <button id="generateReportBtn" class="generate-report-btn">Generate Report</button>
                     <button id="clearDataBtn" class="clear-data-btn" onclick="clearAllData()">Clear All Data</button>
@@ -33,13 +34,6 @@
                 <p id="tag-id">No tag detected</p>
             </div>
         </header>
-
-        <nav>
-            <div class="nav-links">
-                <a href="/" class="active">Dashboard</a>
-                <a href="/camera">Camera View</a>
-            </div>
-        </nav>
 
         <div class="time-scale-tabs">
             <button class="tab-btn active" data-period="today">Today</button>
