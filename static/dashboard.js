@@ -439,16 +439,19 @@ function updateChronograph(stateData) {
         const duration = state.duration || 0;
         const stateStart = new Date(state.timestamp);
         const leftPercent = ((stateStart - workdayStart) / 1000) / totalDuration * 100;
-        const widthPercent = (duration / totalDuration) * 100;
+        let widthPercent = (duration / totalDuration) * 100;
+        // Ensure minimum width for visibility
+        if (widthPercent < 0.2 && widthPercent > 0) widthPercent = 0.2;
         segment.style.left = `${leftPercent}%`;
         segment.style.width = `${widthPercent}%`;
         segment.style.height = '100%';
         segment.style.cursor = 'pointer';
+        // Remove state label for all segments (no text inside bars)
+        // Only show tooltip on hover
         const startTime = stateStart.toLocaleTimeString();
         let endTime;
         let durationStr;
         if (state._isCurrent && state.state !== 'NO_DATA') {
-            // For current state, show live end time and duration
             endTime = (now < workdayEnd ? now : workdayEnd).toLocaleTimeString();
             durationStr = formatDuration(duration);
         } else {
@@ -456,12 +459,6 @@ function updateChronograph(stateData) {
             durationStr = formatDuration(duration);
         }
         segment.title = `${state.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${state.description || ''}`;
-        if (widthPercent > 5) {
-            const label = document.createElement('span');
-            label.className = 'state-label';
-            label.textContent = state.state;
-            segment.appendChild(label);
-        }
         timeline.appendChild(segment);
     });
 
