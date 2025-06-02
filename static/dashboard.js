@@ -363,16 +363,17 @@ function updateChronograph(stateData) {
         return;
     }
 
-    // Filter and sort events within workday
-    const filteredStates = (stateData || []).filter(e => {
+    // Sort and filter events within workday
+    const sortedStates = (stateData || []).filter(e => {
         const t = new Date(e.timestamp);
         return t >= workdayStart && t < workdayEnd;
     }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
+    // Build timeline segments (same logic as PDF)
     let result = [];
     let lastEndTime = new Date(workdayStart);
-    for (let i = 0; i < filteredStates.length; i++) {
-        const state = filteredStates[i];
+    for (let i = 0; i < sortedStates.length; i++) {
+        const state = sortedStates[i];
         const stateTime = new Date(state.timestamp);
         // Add gap if there's a time difference
         if (stateTime > lastEndTime) {
@@ -389,7 +390,7 @@ function updateChronograph(stateData) {
         }
         // Calculate duration for current state
         let duration = state.duration || 0;
-        let nextTime = (i < filteredStates.length - 1) ? new Date(filteredStates[i + 1].timestamp) : workdayEnd;
+        let nextTime = (i < sortedStates.length - 1) ? new Date(sortedStates[i + 1].timestamp) : workdayEnd;
         duration = Math.min(duration, (nextTime - stateTime) / 1000);
         result.push({
             ...state,
@@ -414,7 +415,7 @@ function updateChronograph(stateData) {
     // Calculate total duration for scaling
     const totalDuration = (workdayEnd - workdayStart) / 1000;
 
-    // Create timeline segments
+    // Create timeline segments (with tooltips)
     result.forEach((state, index) => {
         const segment = document.createElement('div');
         segment.className = `timeline-segment ${state.state.toLowerCase()}`;
@@ -448,10 +449,10 @@ function updateChronograph(stateData) {
         }
     }
 
-    // Add time markers for 7am-5pm
+    // Add time markers for 7am-5pm (same as PDF)
     const timeMarkers = document.createElement('div');
     timeMarkers.className = 'time-markers';
-    for (let hour = 7; hour <= 17; hour += 2) {
+    for (let hour = 7; hour <= 17; hour++) {
         const marker = document.createElement('div');
         marker.className = 'time-marker';
         const t = new Date(workdayStart);
@@ -1188,7 +1189,7 @@ async function generateReport(period) {
                 }
 
                 // Draw state segment
-                const duration = entry.duration * 1000; // Convert seconds to milliseconds
+                const duration = entry.duration * 1000;
                 const segmentEndTime = new Date(adjustedCurrentTime.getTime() + duration);
                 const adjustedEndTime = new Date(Math.min(segmentEndTime, endTime));
                 
