@@ -86,6 +86,8 @@ class ArUcoStateDetector:
         self.last_movement_time = None
         self.min_running_hold_time = 10  # seconds: must be below threshold this long to switch to IDLE
         self.min_idle_hold_time = 2     # seconds: must be above threshold this long to switch to RUNNING
+        self.movement_event_window = 10  # seconds: window to look for recent movement
+        self.movement_events = []  # list of (timestamp, movement) for recent significant movements
 
     def setup_camera(self):
         """Set up camera with optimal parameters for performance."""
@@ -441,6 +443,7 @@ class ArUcoStateDetector:
             avg_movement = 0.0
             tag_id = None
             state_changed = False
+            now_ts = time.time()
 
             if len(corners) > 0:
                 # Use the first detected marker
@@ -470,37 +473,20 @@ class ArUcoStateDetector:
                 else:
                     avg_movement = 0.0
 
-                now_ts = time.time()
-                if self.last_state_change_time is None:
-                    self.last_state_change_time = now_ts
-                if self.last_movement_time is None:
-                    self.last_movement_time = now_ts
+                # --- Recent movement window logic ---
+                # Record significant movement events
+                if avg_movement > self.movement_threshold:
+                    self.movement_events.append((now_ts, avg_movement))
+                # Remove old events outside the window
+                self.movement_events = [evt for evt in self.movement_events if now_ts - evt[0] <= self.movement_event_window]
 
-                # Debouncing logic
-                if self.current_state == 'RUNNING':
-                    if avg_movement <= self.movement_threshold:
-                        # Only switch to IDLE if below threshold for min_running_hold_time
-                        if (now_ts - self.last_movement_time) >= self.min_running_hold_time:
-                            state_changed = self._update_state('IDLE', current_time)
-                            self.last_state_change_time = now_ts
-                        # else: stay in RUNNING
-                    else:
-                        self.last_movement_time = now_ts  # reset timer if movement resumes
-                elif self.current_state == 'IDLE':
-                    if avg_movement > self.movement_threshold:
-                        # Only switch to RUNNING if above threshold for min_idle_hold_time
-                        if (now_ts - self.last_movement_time) >= self.min_idle_hold_time:
-                            state_changed = self._update_state('RUNNING', current_time)
-                            self.last_state_change_time = now_ts
-                        # else: stay in IDLE
-                    else:
-                        self.last_movement_time = now_ts  # reset timer if movement stops
+                # State logic: RUNNING if any significant movement in window, else IDLE
+                if len(self.movement_events) > 0:
+                    if self.current_state != 'RUNNING':
+                        state_changed = self._update_state('RUNNING', current_time)
                 else:
-                    # For ERROR or other states, use original logic
-                    new_state = 'RUNNING' if avg_movement > self.movement_threshold else 'IDLE'
-                    state_changed = self._update_state(new_state, current_time)
-                    self.last_state_change_time = now_ts
-                    self.last_movement_time = now_ts
+                    if self.current_state != 'IDLE':
+                        state_changed = self._update_state('IDLE', current_time)
 
                 self.last_position = current_position
                 self.last_detection_time = current_time
@@ -526,8 +512,7 @@ class ArUcoStateDetector:
                     state_changed = self._update_state('ERROR', current_time)
                     self.last_position = None
                     self.position_history = []
-                    self.last_state_change_time = None
-                    self.last_movement_time = None
+                    self.movement_events = []
 
             return self.current_state, tag_id, frame
 
