@@ -1148,5 +1148,7 @@ async function generateReport(period) {
     try {
         // Fetch all necessary data
         const response = await fetch(`/api/metrics/${period}`);
+    } catch (error) {
+        console.error(error);
     }
 }
