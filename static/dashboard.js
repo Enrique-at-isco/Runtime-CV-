@@ -503,10 +503,20 @@ function updateChronograph(stateData) {
         marker.style.color = 'var(--text-color)';
         marker.style.fontSize = '12px';
         marker.style.whiteSpace = 'nowrap';
-        const t = new Date(workdayStart);
-        t.setHours(hour, 0, 0, 0);
-        marker.textContent = t.toLocaleTimeString([], { hour: 'numeric', hour12: true });
+        // Calculate left position as a percentage
         marker.style.left = `${((hour - 7) / 10) * 100}%`;
+        // Format hour as 12-hour with AM/PM
+        let displayHour = hour;
+        let ampm = 'AM';
+        if (hour === 0) {
+            displayHour = 12;
+        } else if (hour > 12) {
+            displayHour = hour - 12;
+            ampm = 'PM';
+        } else if (hour === 12) {
+            ampm = 'PM';
+        }
+        marker.textContent = `${displayHour}${ampm}`;
         timeMarkers.appendChild(marker);
     }
     timeline.appendChild(timeMarkers);

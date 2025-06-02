@@ -322,7 +322,7 @@ button {
 
 .timeline-segment.no-data {
     background-color: #95a5a6;
-    opacity: 0.7;
+    opacity: 1.0;
 }
 
 .timeline-segment:hover {
