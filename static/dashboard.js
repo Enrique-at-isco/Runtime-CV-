@@ -527,8 +527,7 @@ async function fetchTimelineData() {
 }
 
 // Update state change log based on time period
-const origUpdateStateChangeLog = updateStateChangeLog;
-updateStateChangeLog = async function(period) {
+async function updateStateChangeLog(period) {
     const stateFilter = document.getElementById('stateFilter').value;
     const limitFilter = document.getElementById('limitFilter').value;
     try {
