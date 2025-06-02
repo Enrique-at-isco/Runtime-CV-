@@ -370,9 +370,10 @@ function updateChronograph(stateData) {
         return t >= workdayStart && t < workdayEnd;
     }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-    // Build timeline segments (same logic as PDF)
+    // Build timeline segments (same logic as PDF, but last segment ends at now)
     let result = [];
     let lastEndTime = new Date(workdayStart);
+    const now = new Date();
     for (let i = 0; i < sortedStates.length; i++) {
         const state = sortedStates[i];
         const stateTime = new Date(state.timestamp);
@@ -391,11 +392,19 @@ function updateChronograph(stateData) {
         }
         // Calculate duration for current state
         let duration = state.duration || 0;
-        let nextTime = (i < sortedStates.length - 1) ? new Date(sortedStates[i + 1].timestamp) : workdayEnd;
-        duration = Math.min(duration, (nextTime - stateTime) / 1000);
+        let nextTime;
+        if (i < sortedStates.length - 1) {
+            nextTime = new Date(sortedStates[i + 1].timestamp);
+            duration = Math.min(duration, (nextTime - stateTime) / 1000);
+        } else {
+            // Last segment: end at now or workdayEnd, whichever is earlier
+            const segmentEnd = (now < workdayEnd ? now : workdayEnd);
+            duration = Math.max(0, (segmentEnd - stateTime) / 1000);
+        }
         result.push({
             ...state,
-            duration: Math.max(0, duration)
+            duration: Math.max(0, duration),
+            _isCurrent: i === sortedStates.length - 1 // mark last segment
         });
         lastEndTime = new Date(stateTime.getTime() + duration * 1000);
     }
@@ -436,8 +445,16 @@ function updateChronograph(stateData) {
         segment.style.height = '100%';
         segment.style.cursor = 'pointer';
         const startTime = stateStart.toLocaleTimeString();
-        const endTime = new Date(stateStart.getTime() + duration * 1000).toLocaleTimeString();
-        const durationStr = formatDuration(duration);
+        let endTime;
+        let durationStr;
+        if (state._isCurrent && state.state !== 'NO_DATA') {
+            // For current state, show live end time and duration
+            endTime = (now < workdayEnd ? now : workdayEnd).toLocaleTimeString();
+            durationStr = formatDuration(duration);
+        } else {
+            endTime = new Date(stateStart.getTime() + duration * 1000).toLocaleTimeString();
+            durationStr = formatDuration(duration);
+        }
         segment.title = `${state.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${state.description || ''}`;
         if (widthPercent > 5) {
             const label = document.createElement('span');
@@ -450,7 +467,6 @@ function updateChronograph(stateData) {
 
     // Add current time indicator if viewing today's data
     if (currentPeriod === 'today') {
-        const now = new Date();
         if (now >= workdayStart && now <= workdayEnd) {
             const currentPosition = ((now - workdayStart) / 1000) / totalDuration * 100;
             if (currentPosition >= 0 && currentPosition <= 100) {
@@ -511,28 +527,30 @@ async function fetchTimelineData() {
 }
 
 // Update state change log based on time period
-async function updateStateChangeLog(period) {
+const origUpdateStateChangeLog = updateStateChangeLog;
+updateStateChangeLog = async function(period) {
     const stateFilter = document.getElementById('stateFilter').value;
     const limitFilter = document.getElementById('limitFilter').value;
-    
     try {
         const response = await fetch(`/api/events/${period}?state=${stateFilter}&limit=${limitFilter}`);
         const events = await response.json();
-        
         const tbody = document.getElementById('events-list');
         tbody.innerHTML = '';
-        
         // Sort events in reverse chronological order (newest first)
-        const sortedEvents = [...events].sort((a, b) => 
-            new Date(b.timestamp) - new Date(a.timestamp)
-        );
-        
-        sortedEvents.forEach(event => {
+        const sortedEvents = [...events].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        const now = new Date();
+        sortedEvents.forEach((event, idx) => {
+            let duration = event.duration;
+            // If this is the most recent event and duration is 0, show live time in state
+            if (idx === 0 && (!duration || duration === 0)) {
+                const start = new Date(event.timestamp);
+                duration = Math.max(0, (now - start) / 1000);
+            }
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${new Date(event.timestamp).toLocaleString()}</td>
                 <td><span class="state-badge ${event.state.toLowerCase()}">${event.state}</span></td>
-                <td class="duration-cell">${formatDuration(event.duration)}</td>
+                <td class="duration-cell">${formatDuration(duration)}</td>
                 <td>${event.description || '-'}</td>
             `;
             tbody.appendChild(row);
