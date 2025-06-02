@@ -1147,4 +1147,6 @@ async function drawDailyTimelines(doc, startY, period) {
 async function generateReport(period) {
     try {
         // Fetch all necessary data
-        const response = await fetch(`
+        const response = await fetch(`/api/metrics/${period}`);
+    }
+}
