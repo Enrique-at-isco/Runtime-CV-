@@ -444,6 +444,11 @@ button {
     border-radius: 50%;
 }
 
+.legend-dot.running { background-color: #2ecc71; }
+.legend-dot.idle { background-color: #f1c40f; }
+.legend-dot.error { background-color: #e74c3c; }
+.legend-dot.no-data { background-color: #95a5a6; }
+
 /* State Colors */
 .bg-green-500 { background-color: #22c55e; }
 .bg-yellow-500 { background-color: #eab308; }

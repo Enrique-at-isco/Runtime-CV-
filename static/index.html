@@ -54,7 +54,10 @@
             <div class="metrics-grid">
                 <div class="metric-card full-width">
                     <h3>Runtime Timeline</h3>
-                    <div class="chronograph-legend">
+                    <div class="chronograph-container" id="chronograph-container">
+                        <!-- Timeline will be added here by JavaScript -->
+                    </div>
+                    <div class="chronograph-legend legend-container">
                         <div class="legend-item">
                             <span class="legend-dot running"></span>
                             <span>Running</span>
@@ -71,9 +74,6 @@
                             <span class="legend-dot no-data"></span>
                             <span>No Data</span>
                         </div>
-                    </div>
-                    <div class="chronograph-container" id="chronograph-container">
-                        <!-- Timeline will be added here by JavaScript -->
                     </div>
                 </div>
                 <div class="metric-card">
