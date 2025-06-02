@@ -245,7 +245,7 @@ button {
 
 .chronograph-container {
     padding: 0;
-    max-width: 100%;
+    margin: 0;
     background: none;
     border-radius: 0;
     box-shadow: none;
@@ -291,10 +291,10 @@ button {
     height: 40px;
     background: #fff;
     border-radius: 0;
-    overflow: hidden;
+    overflow: visible;
     display: flex;
     align-items: center;
-    margin-bottom: 0;
+    margin-bottom: 32px;
     box-shadow: none;
 }
 
@@ -358,14 +358,12 @@ button {
 
 .time-markers {
     position: absolute;
-    bottom: -20px;
     left: 0;
     right: 0;
-    display: flex;
-    justify-content: space-between;
-    padding: 0 4px;
-    color: var(--text-color);
-    font-size: 12px;
+    bottom: -24px;
+    height: 20px;
+    width: 100%;
+    pointer-events: none;
 }
 
 .time-marker {
