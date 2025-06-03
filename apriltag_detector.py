@@ -338,14 +338,25 @@ class ArUcoStateDetector:
             while True:
                 try:
                     new_state, current_time = await self.state_queue.get()
-                    
+
+                    # Prevent zero-duration and duplicate state entries
+                    last_state = db.query(MachineState).order_by(MachineState.timestamp.desc()).first()
+                    if last_state:
+                        # Skip if same state and timestamp (duplicate)
+                        if (last_state.state == new_state.state and
+                            last_state.timestamp == new_state.timestamp):
+                            continue
+                        # Skip if new state would have zero duration (same timestamp as last)
+                        if last_state.timestamp == new_state.timestamp:
+                            continue
+
                     # Add the new state to the database
                     db.add(new_state)
                     db.commit()
-                    
+
                     # Update durations for all states
                     MachineState.update_durations(db)
-                    
+
                 except Exception as e:
                     print(f"Error in database worker: {e}")
                     db.rollback()

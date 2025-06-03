@@ -293,6 +293,8 @@ button {
     position: relative;
     display: block;
     cursor: pointer;
+    border: none;
+    margin: 0;
 }
 
 .timeline-segment.running {
@@ -307,6 +309,9 @@ button {
 .timeline-segment.no-data {
     background-color: #95a5a6;
 }
+.timeline-segment-light {
+    background-color: #e5e7eb !important;
+}
 
 .timeline-hour-divider {
     position: absolute;
@@ -315,6 +320,17 @@ button {
     width: 1px;
     background: #e5e7eb;
     z-index: 2;
+    pointer-events: none;
+}
+
+.current-time-indicator {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #222;
+    z-index: 3;
+    pointer-events: none;
 }
 
 .time-markers {

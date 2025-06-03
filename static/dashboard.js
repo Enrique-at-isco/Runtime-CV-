@@ -344,40 +344,25 @@ function updateChronograph(stateData) {
     timeline.style.flexDirection = 'column';
     timeline.style.alignItems = 'stretch';
 
-    // Workday range for 'today'
-    let workdayStart, workdayEnd;
-    if (currentPeriod === 'today') {
-        const now = new Date();
-        workdayStart = new Date(now);
-        workdayStart.setHours(7, 0, 0, 0);
-        workdayEnd = new Date(now);
-        workdayEnd.setHours(17, 0, 0, 0);
-    } else if (stateData && stateData.length > 0) {
-        workdayStart = new Date(stateData[0].timestamp);
-        workdayEnd = new Date(stateData[stateData.length - 1].timestamp);
-    }
+    // Timeline range: 7AM to 5PM (600 minutes)
+    const now = new Date();
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    const workdayStart = new Date(today); workdayStart.setHours(7, 0, 0, 0);
+    const workdayEnd = new Date(today); workdayEnd.setHours(17, 0, 0, 0);
+    const timelineEnd = now < workdayEnd ? now : workdayEnd;
+    const totalMinutes = 600;
+    const totalMs = 600 * 60 * 1000;
 
-    if (!stateData || stateData.length === 0 || !workdayStart || !workdayEnd) {
-        // Show "No Data" message if no states
-        const noDataSegment = document.createElement('div');
-        noDataSegment.className = 'timeline-segment no-data';
-        noDataSegment.style.flex = '1 1 0';
-        noDataSegment.title = 'No data available for this period';
-        noDataSegment.style.height = '32px';
-        timeline.appendChild(noDataSegment);
-        return;
-    }
-
-    // Sort and filter events within workday
-    const sortedStates = (stateData || []).filter(e => {
+    // Preprocess: sort, merge adjacent, and fill gaps
+    let sortedStates = (stateData || []).filter(e => {
         const t = new Date(e.timestamp);
         return t >= workdayStart && t < workdayEnd;
     }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-    // Merge adjacent identical states
+    // Merge adjacent same-state blocks
     let merged = [];
     let last = null;
-    let now = new Date();
     for (let i = 0; i < sortedStates.length; i++) {
         const state = sortedStates[i];
         const stateTime = new Date(state.timestamp);
@@ -407,37 +392,85 @@ function updateChronograph(stateData) {
         }
     }
 
-    // Fill gaps with NO_DATA
+    // Build timeline blocks
     let timelineBlocks = [];
-    let lastEnd = new Date(workdayStart);
-    for (let i = 0; i < merged.length; i++) {
-        const block = merged[i];
-        if (block.startTime > lastEnd) {
+    let cursor = new Date(workdayStart);
+    // Pre-7AM (if any)
+    if (now > workdayStart) {
+        if (cursor < workdayStart) {
             timelineBlocks.push({
                 state: 'NO_DATA',
-                startTime: new Date(lastEnd),
-                endTime: new Date(block.startTime),
-                duration: (block.startTime - lastEnd) / 1000,
+                startTime: new Date(cursor),
+                endTime: new Date(workdayStart),
+                duration: (workdayStart - cursor) / 1000,
+                description: 'Pre-shift',
+                tag_id: null,
+                preShift: true
+            });
+            cursor = new Date(workdayStart);
+        }
+        // Fill from 7AM to now
+        for (let i = 0; i < merged.length; i++) {
+            const block = merged[i];
+            if (block.startTime > cursor) {
+                timelineBlocks.push({
+                    state: 'NO_DATA',
+                    startTime: new Date(cursor),
+                    endTime: new Date(block.startTime),
+                    duration: (block.startTime - cursor) / 1000,
+                    description: 'No data available',
+                    tag_id: null
+                });
+            }
+            // Clamp block to not go past now
+            let blockEnd = block.endTime > timelineEnd ? timelineEnd : block.endTime;
+            let blockDuration = (blockEnd - block.startTime) / 1000;
+            if (blockEnd > block.startTime) {
+                timelineBlocks.push({
+                    ...block,
+                    endTime: blockEnd,
+                    duration: blockDuration
+                });
+            }
+            cursor = blockEnd;
+            if (cursor >= timelineEnd) break;
+        }
+        // Fill from last state to now if needed
+        if (cursor < timelineEnd) {
+            timelineBlocks.push({
+                state: 'NO_DATA',
+                startTime: new Date(cursor),
+                endTime: new Date(timelineEnd),
+                duration: (timelineEnd - cursor) / 1000,
                 description: 'No data available',
                 tag_id: null
             });
+            cursor = new Date(timelineEnd);
         }
-        timelineBlocks.push(block);
-        lastEnd = block.endTime;
-    }
-    if (lastEnd < workdayEnd) {
+        // Post-now (if before 5PM)
+        if (timelineEnd < workdayEnd) {
+            timelineBlocks.push({
+                state: 'NO_DATA',
+                startTime: new Date(timelineEnd),
+                endTime: new Date(workdayEnd),
+                duration: (workdayEnd - timelineEnd) / 1000,
+                description: 'Post-shift',
+                tag_id: null,
+                postShift: true
+            });
+        }
+    } else {
+        // If now is before 7AM, whole bar is pre-shift
         timelineBlocks.push({
             state: 'NO_DATA',
-            startTime: new Date(lastEnd),
+            startTime: new Date(workdayStart),
             endTime: new Date(workdayEnd),
-            duration: (workdayEnd - lastEnd) / 1000,
-            description: 'No data available',
-            tag_id: null
+            duration: (workdayEnd - workdayStart) / 1000,
+            description: 'Pre-shift',
+            tag_id: null,
+            preShift: true
         });
     }
-
-    // Calculate total duration for scaling
-    const totalDuration = (workdayEnd - workdayStart) / 1000;
 
     // Timeline bar (flex row)
     const bar = document.createElement('div');
@@ -449,8 +482,12 @@ function updateChronograph(stateData) {
 
     timelineBlocks.forEach((block, index) => {
         const seg = document.createElement('div');
+        let blockMinutes = (block.endTime - block.startTime) / 60000;
         seg.className = `timeline-segment ${block.state.toLowerCase().replaceAll('_', '-')}`;
-        seg.style.flex = `${block.duration / totalDuration} 1 0`;
+        if (block.preShift || block.postShift) {
+            seg.className += ' timeline-segment-light';
+        }
+        seg.style.flex = `${blockMinutes / totalMinutes} 1 0`;
         seg.style.height = '100%';
         seg.style.position = 'relative';
         seg.style.minWidth = '2px';
@@ -458,7 +495,7 @@ function updateChronograph(stateData) {
         // Tooltip
         const startTime = block.startTime.toLocaleTimeString();
         const endTime = block.endTime.toLocaleTimeString();
-        const durationStr = formatDuration(block.duration);
+        const durationStr = formatDuration((block.endTime - block.startTime) / 1000);
         seg.title = `${block.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${block.description || ''}`;
         bar.appendChild(seg);
     });
@@ -477,6 +514,22 @@ function updateChronograph(stateData) {
         divider.style.zIndex = '2';
         bar.appendChild(divider);
     }
+
+    // Add current time indicator
+    if (now >= workdayStart && now <= workdayEnd) {
+        const nowPos = ((now - workdayStart) / totalMs) * 100;
+        const indicator = document.createElement('div');
+        indicator.className = 'current-time-indicator';
+        indicator.style.position = 'absolute';
+        indicator.style.top = '0';
+        indicator.style.bottom = '0';
+        indicator.style.width = '2px';
+        indicator.style.left = `${nowPos}%`;
+        indicator.style.background = '#222';
+        indicator.style.zIndex = '3';
+        bar.appendChild(indicator);
+    }
+
     timeline.appendChild(bar);
 
     // Add time markers below
