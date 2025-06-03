@@ -1320,15 +1320,15 @@ async function generateReport(period) {
             }
         }
 
-        // 5. State Distribution Table + Pie Chart
+        // 5. State Distribution Section: Horizontal Stacked Bar Chart + Table
         doc.setFontSize(14);
         doc.text('State Distribution', 20, yPos);
         yPos += 8;
-        // Pie chart
+        // Horizontal stacked bar chart
         if (data.state_counts) {
             const totalTime = Object.values(data.state_counts).reduce((a, b) => a + b, 0);
-            const pieX = 35, pieY = yPos + 25, pieR = 18;
-            let startAngle = 0;
+            const barX = 20, barY = yPos, barW = 110, barH = 10;
+            let curX = barX;
             const colors = {
                 'RUNNING': [46,204,113],
                 'IDLE': [241,196,15],
@@ -1337,22 +1337,23 @@ async function generateReport(period) {
             };
             for (const [state, duration] of Object.entries(data.state_counts)) {
                 if (duration <= 0) continue;
-                const angle = (duration / totalTime) * 2 * Math.PI;
+                const frac = totalTime > 0 ? duration / totalTime : 0;
+                const segW = frac * barW;
                 doc.setFillColor(...(colors[state] || [149,165,166]));
-                doc.circle(pieX, pieY, pieR, 'F', startAngle, startAngle + angle);
-                startAngle += angle;
+                doc.rect(curX, barY, segW, barH, 'F');
+                curX += segW;
             }
-            // Pie chart legend
-            let legendY = pieY - pieR;
+            // Bar chart legend
+            let lx = barX, ly = barY + barH + 5;
             for (const [state, color] of Object.entries(colors)) {
                 doc.setFillColor(...color);
-                doc.rect(pieX + pieR + 10, legendY, 6, 6, 'F');
+                doc.rect(lx, ly, 6, 6, 'F');
                 doc.setTextColor(0);
                 doc.setFontSize(9);
-                doc.text(state, pieX + pieR + 18, legendY + 5);
-                legendY += 8;
+                doc.text(state, lx + 8, ly + 5);
+                lx += 32;
             }
-            yPos += 2 * pieR + 10;
+            yPos += barH + 16;
         }
         // Table
         doc.setFontSize(10);
@@ -1407,7 +1408,7 @@ async function generateReport(period) {
             }
         }
 
-        // 7. Hourly Analysis Table
+        // 7. Hourly Analysis Table (ensure all hours, add page if needed)
         if (data.hourly_metrics) {
             doc.setFontSize(14);
             doc.text('Hourly Analysis', 20, yPos);
@@ -1433,6 +1434,7 @@ async function generateReport(period) {
                 if (e > bestEff) { bestEff = e; bestHour = h; }
             }
             for (let h = 7; h <= 17; h++) {
+                if (yPos > 270) { doc.addPage(); yPos = 20; }
                 const m = data.hourly_metrics[h] || {running_duration:0, idle_duration:0, error_duration:0};
                 const t = m.running_duration + m.idle_duration + m.error_duration;
                 const e = t > 0 ? (m.running_duration / t) * 100 : 0;
@@ -1461,7 +1463,7 @@ async function generateReport(period) {
             yPos += 8;
         }
 
-        // 8. State Change Log Table
+        // 8. State Change Log Table (with header/title)
         if (period === 'today') {
             try {
                 const logResp = await fetch('/api/events/today?state=all&limit=1000');
