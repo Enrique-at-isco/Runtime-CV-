@@ -1211,7 +1211,8 @@ async function generateReport(period) {
         }
         const data = await response.json();
 
-        // Create PDF document
+        // Create PDF document using window.jspdf
+        const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
         let yPos = 20;
 
