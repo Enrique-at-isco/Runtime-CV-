@@ -1249,11 +1249,16 @@ async function generateReport(period) {
                     // Draw segments
                     const workStart = new Date(); workStart.setHours(7,0,0,0);
                     const workEnd = new Date(); workEnd.setHours(17,0,0,0);
+                    const now = new Date();
+                    const timelineCutoff = now < workEnd ? now : workEnd;
                     const totalSec = (workEnd - workStart) / 1000;
                     for (const seg of timelineData) {
                         const segStart = new Date(seg.timestamp);
                         const segDur = seg.duration || 0;
-                        const segEnd = new Date(segStart.getTime() + segDur * 1000);
+                        let segEnd = new Date(segStart.getTime() + segDur * 1000);
+                        // Clamp to cutoff
+                        if (segEnd > timelineCutoff) segEnd = timelineCutoff;
+                        if (segStart >= timelineCutoff) continue;
                         // Clamp to work hours
                         const startFrac = Math.max(0, (segStart - workStart) / 1000 / totalSec);
                         const endFrac = Math.min(1, (segEnd - workStart) / 1000 / totalSec);
@@ -1267,6 +1272,14 @@ async function generateReport(period) {
                             case 'NO_DATA': default: doc.setFillColor(149,165,166); break;
                         }
                         doc.rect(segX, barY, segW, barH, 'F');
+                    }
+                    // Fill after cutoff with gray
+                    if (timelineCutoff < workEnd) {
+                        const cutoffFrac = (timelineCutoff - workStart) / 1000 / totalSec;
+                        const cutoffX = barX + cutoffFrac * barW;
+                        const grayW = barW - (cutoffX - barX);
+                        doc.setFillColor(149,165,166);
+                        doc.rect(cutoffX, barY, grayW, barH, 'F');
                     }
                     // Draw hour markers
                     doc.setDrawColor(180);
@@ -1307,30 +1320,41 @@ async function generateReport(period) {
             }
         }
 
-        // 5. Summary Table
-        doc.setFontSize(14);
-        doc.text('Summary', 20, yPos);
-        yPos += 8;
-        doc.setFontSize(10);
-        if (data.summary) {
-            doc.text('Total Runtime:', 20, yPos);
-            doc.text(formatDuration(data.summary.totalRuntime || 0), 60, yPos);
-            yPos += 6;
-            doc.text('Efficiency:', 20, yPos);
-            doc.text(`${data.summary.efficiency || 0}%`, 60, yPos);
-            yPos += 6;
-            doc.text('Best Day:', 20, yPos);
-            doc.text(data.summary.bestDay || 'N/A', 60, yPos);
-            yPos += 6;
-            doc.text('Average Daily Runtime:', 20, yPos);
-            doc.text(formatDuration(data.summary.avgRuntime || 0), 60, yPos);
-            yPos += 10;
-        }
-
-        // 6. State Distribution Table
+        // 5. State Distribution Table + Pie Chart
         doc.setFontSize(14);
         doc.text('State Distribution', 20, yPos);
         yPos += 8;
+        // Pie chart
+        if (data.state_counts) {
+            const totalTime = Object.values(data.state_counts).reduce((a, b) => a + b, 0);
+            const pieX = 35, pieY = yPos + 25, pieR = 18;
+            let startAngle = 0;
+            const colors = {
+                'RUNNING': [46,204,113],
+                'IDLE': [241,196,15],
+                'ERROR': [231,76,60],
+                'NO_DATA': [149,165,166]
+            };
+            for (const [state, duration] of Object.entries(data.state_counts)) {
+                if (duration <= 0) continue;
+                const angle = (duration / totalTime) * 2 * Math.PI;
+                doc.setFillColor(...(colors[state] || [149,165,166]));
+                doc.circle(pieX, pieY, pieR, 'F', startAngle, startAngle + angle);
+                startAngle += angle;
+            }
+            // Pie chart legend
+            let legendY = pieY - pieR;
+            for (const [state, color] of Object.entries(colors)) {
+                doc.setFillColor(...color);
+                doc.rect(pieX + pieR + 10, legendY, 6, 6, 'F');
+                doc.setTextColor(0);
+                doc.setFontSize(9);
+                doc.text(state, pieX + pieR + 18, legendY + 5);
+                legendY += 8;
+            }
+            yPos += 2 * pieR + 10;
+        }
+        // Table
         doc.setFontSize(10);
         doc.text('State', 20, yPos);
         doc.text('Duration', 50, yPos);
@@ -1348,24 +1372,91 @@ async function generateReport(period) {
         }
         yPos += 8;
 
-        // 7. Hourly Table (all states)
+        // 6. Runtime Analysis Section
+        doc.setFontSize(14);
+        doc.text('Runtime Analysis', 20, yPos);
+        yPos += 8;
+        doc.setFontSize(10);
+        if (data.state_counts) {
+            doc.text('Total Runtime:', 20, yPos);
+            doc.text(formatDuration(data.state_counts['RUNNING'] || 0), 60, yPos);
+            yPos += 6;
+            doc.text('Total Idle Time:', 20, yPos);
+            doc.text(formatDuration(data.state_counts['IDLE'] || 0), 60, yPos);
+            yPos += 6;
+            doc.text('Total Error Time:', 20, yPos);
+            doc.text(formatDuration(data.state_counts['ERROR'] || 0), 60, yPos);
+            yPos += 6;
+            const total = (data.state_counts['RUNNING'] || 0) + (data.state_counts['IDLE'] || 0) + (data.state_counts['ERROR'] || 0);
+            const eff = total > 0 ? ((data.state_counts['RUNNING'] / total) * 100).toFixed(1) : '0.0';
+            doc.text('Efficiency:', 20, yPos);
+            doc.text(`${eff}%`, 60, yPos);
+            yPos += 6;
+            // Peak Performance (most efficient hour)
+            if (data.hourly_metrics) {
+                let bestHour = null, bestEff = -1;
+                for (let h = 7; h <= 17; h++) {
+                    const m = data.hourly_metrics[h] || {running_duration:0, idle_duration:0, error_duration:0};
+                    const t = m.running_duration + m.idle_duration + m.error_duration;
+                    const e = t > 0 ? (m.running_duration / t) * 100 : 0;
+                    if (e > bestEff) { bestEff = e; bestHour = h; }
+                }
+                doc.text('Peak Performance:', 20, yPos);
+                doc.text(`${bestHour}:00 (${bestEff.toFixed(1)}%)`, 60, yPos);
+                yPos += 8;
+            }
+        }
+
+        // 7. Hourly Analysis Table
         if (data.hourly_metrics) {
             doc.setFontSize(14);
-            doc.text('Hourly Table', 20, yPos);
+            doc.text('Hourly Analysis', 20, yPos);
             yPos += 8;
-            doc.setFontSize(10);
-            doc.text('Hour', 20, yPos);
-            doc.text('Running', 40, yPos);
-            doc.text('Idle', 70, yPos);
-            doc.text('Error', 100, yPos);
-            yPos += 6;
+            // Blue header row
+            doc.setFillColor(52, 152, 219);
+            doc.setTextColor(255);
+            doc.rect(20, yPos, 110, 7, 'F');
+            doc.text('Hour', 22, yPos + 5);
+            doc.text('Running', 40, yPos + 5);
+            doc.text('Idle', 65, yPos + 5);
+            doc.text('Error', 90, yPos + 5);
+            doc.text('Efficiency', 115, yPos + 5);
+            yPos += 8;
+            // Table rows
+            let bestHour = null, bestEff = -1;
+            let effs = [];
             for (let h = 7; h <= 17; h++) {
-                const metrics = data.hourly_metrics[h] || {running_duration: 0, idle_duration: 0, error_duration: 0};
-                doc.text(`${h}:00`, 20, yPos);
-                doc.text(formatDuration(metrics.running_duration || 0), 40, yPos);
-                doc.text(formatDuration(metrics.idle_duration || 0), 70, yPos);
-                doc.text(formatDuration(metrics.error_duration || 0), 100, yPos);
-                yPos += 6;
+                const m = data.hourly_metrics[h] || {running_duration:0, idle_duration:0, error_duration:0};
+                const t = m.running_duration + m.idle_duration + m.error_duration;
+                const e = t > 0 ? (m.running_duration / t) * 100 : 0;
+                effs.push(e);
+                if (e > bestEff) { bestEff = e; bestHour = h; }
+            }
+            for (let h = 7; h <= 17; h++) {
+                const m = data.hourly_metrics[h] || {running_duration:0, idle_duration:0, error_duration:0};
+                const t = m.running_duration + m.idle_duration + m.error_duration;
+                const e = t > 0 ? (m.running_duration / t) * 100 : 0;
+                // Color for efficiency
+                let effColor = [231,76,60]; // red
+                if (e > 80) effColor = [46,204,113]; // green
+                else if (e > 50) effColor = [241,196,15]; // yellow
+                else if (e > 20) effColor = [230,126,34]; // orange
+                // Border for best hour
+                if (h === bestHour) {
+                    doc.setDrawColor(52, 152, 219);
+                    doc.setLineWidth(0.8);
+                    doc.rect(20, yPos-2, 110, 8, 'D');
+                }
+                doc.setFontSize(10);
+                doc.setTextColor(0);
+                doc.text(`${h}:00`, 22, yPos + 5);
+                doc.text(formatDuration(m.running_duration || 0), 40, yPos + 5);
+                doc.text(formatDuration(m.idle_duration || 0), 65, yPos + 5);
+                doc.text(formatDuration(m.error_duration || 0), 90, yPos + 5);
+                doc.setTextColor(...effColor);
+                doc.text(`${e.toFixed(1)}%`, 115, yPos + 5);
+                doc.setTextColor(0);
+                yPos += 8;
             }
             yPos += 8;
         }
@@ -1379,19 +1470,33 @@ async function generateReport(period) {
                     doc.setFontSize(14);
                     doc.text('State Change Log', 20, yPos);
                     yPos += 8;
+                    // Blue header row
+                    doc.setFillColor(52, 152, 219);
+                    doc.setTextColor(255);
+                    doc.rect(20, yPos, 170, 7, 'F');
+                    doc.text('Timestamp', 22, yPos + 5);
+                    doc.text('State', 70, yPos + 5);
+                    doc.text('Duration', 100, yPos + 5);
+                    doc.text('Description', 130, yPos + 5);
+                    yPos += 8;
                     doc.setFontSize(9);
-                    doc.text('Timestamp', 20, yPos);
-                    doc.text('State', 60, yPos);
-                    doc.text('Duration', 90, yPos);
-                    doc.text('Description', 120, yPos);
-                    yPos += 6;
                     for (const event of events.reverse()) {
                         if (yPos > 270) { doc.addPage(); yPos = 20; }
-                        doc.text(new Date(event.timestamp).toLocaleString(), 20, yPos, {maxWidth: 38});
-                        doc.text(event.state, 60, yPos);
-                        doc.text(formatDuration(event.duration || 0), 90, yPos);
-                        doc.text((event.description || '-').toString().substring(0, 40), 120, yPos);
-                        yPos += 6;
+                        doc.setTextColor(0);
+                        doc.text(new Date(event.timestamp).toLocaleString(), 22, yPos + 5, {maxWidth: 45});
+                        // State cell with color
+                        let stateColor = [255,255,255], stateBg = [149,165,166];
+                        if (event.state === 'RUNNING') { stateBg = [46,204,113]; }
+                        else if (event.state === 'IDLE') { stateBg = [241,196,15]; }
+                        else if (event.state === 'ERROR') { stateBg = [231,76,60]; }
+                        doc.setFillColor(...stateBg);
+                        doc.rect(68, yPos, 28, 7, 'F');
+                        doc.setTextColor(255,255,255);
+                        doc.text(event.state, 70, yPos + 5);
+                        doc.setTextColor(0);
+                        doc.text(formatDuration(event.duration || 0), 100, yPos + 5);
+                        doc.text((event.description || '-').toString().substring(0, 50), 130, yPos + 5);
+                        yPos += 8;
                     }
                 }
             } catch (err) {
