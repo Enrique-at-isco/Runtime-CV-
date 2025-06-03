@@ -1206,7 +1206,81 @@ async function generateReport(period) {
     try {
         // Fetch all necessary data
         const response = await fetch(`/api/metrics/${period}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+
+        // Create PDF document
+        const doc = new jsPDF();
+        let yPos = 20;
+
+        // Add title
+        doc.setFontSize(20);
+        doc.text('Runtime Report', 20, yPos);
+        yPos += 15;
+
+        // Add period
+        doc.setFontSize(14);
+        const periodText = period.charAt(0).toUpperCase() + period.slice(1);
+        doc.text(`Period: ${periodText}`, 20, yPos);
+        yPos += 15;
+
+        // Add summary metrics
+        doc.setFontSize(12);
+        if (data.summary) {
+            doc.text(`Total Runtime: ${formatDuration(data.summary.total_runtime || 0)}`, 20, yPos);
+            yPos += 10;
+            doc.text(`Efficiency: ${data.summary.efficiency || 0}%`, 20, yPos);
+            yPos += 10;
+            doc.text(`Best Day: ${data.summary.best_day || 'N/A'}`, 20, yPos);
+            yPos += 10;
+            doc.text(`Average Daily Runtime: ${formatDuration(data.summary.avg_daily_runtime || 0)}`, 20, yPos);
+            yPos += 20;
+        }
+
+        // Add state distribution
+        if (data.state_counts) {
+            doc.setFontSize(14);
+            doc.text('State Distribution', 20, yPos);
+            yPos += 15;
+
+            doc.setFontSize(12);
+            const totalTime = Object.values(data.state_counts).reduce((a, b) => a + b, 0);
+            for (const [state, duration] of Object.entries(data.state_counts)) {
+                const percentage = totalTime > 0 ? ((duration / totalTime) * 100).toFixed(1) : 0;
+                doc.text(`${state}: ${formatDuration(duration)} (${percentage}%)`, 20, yPos);
+                yPos += 10;
+            }
+            yPos += 10;
+        }
+
+        // Add daily timelines for weekly report
+        if (period === 'week') {
+            yPos = await drawDailyTimelines(doc, yPos, period);
+        }
+
+        // Add hourly distribution
+        if (data.hourly_metrics) {
+            doc.setFontSize(14);
+            doc.text('Hourly Distribution', 20, yPos);
+            yPos += 15;
+
+            doc.setFontSize(12);
+            const hours = Object.keys(data.hourly_metrics).sort();
+            for (const hour of hours) {
+                const metrics = data.hourly_metrics[hour];
+                doc.text(`${hour}:00 - ${formatDuration(metrics.running_duration)} running`, 20, yPos);
+                yPos += 10;
+            }
+        }
+
+        // Save the PDF
+        const filename = `runtime_report_${period}_${new Date().toISOString().split('T')[0]}.pdf`;
+        doc.save(filename);
+
     } catch (error) {
-        console.error(error);
+        console.error('Error generating report:', error);
+        alert('Failed to generate report. Please try again.');
     }
 }
