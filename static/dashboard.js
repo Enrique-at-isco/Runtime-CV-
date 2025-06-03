@@ -1157,7 +1157,7 @@ async function drawDailyTimelines(doc, startY, period) {
                 const markerX = timelineStartX + ((hour - 7) / workHours) * timelineWidth;
                 doc.line(markerX, startY + timelineHeight, markerX, startY + timelineHeight + 2);
                 const displayHour = hour > 12 ? hour - 12 : hour;
-                const ampm = hour >= 12 ? 'PM' : 'AM';
+                let ampm = hour >= 12 ? 'PM' : 'AM';
                 doc.text(`${displayHour}${ampm}`, markerX - 6, startY + timelineHeight + 6);
             }
 
@@ -1225,18 +1225,95 @@ async function generateReport(period) {
         doc.setFontSize(14);
         const periodText = period.charAt(0).toUpperCase() + period.slice(1);
         doc.text(`Period: ${periodText}`, 20, yPos);
-        yPos += 15;
+        yPos += 10;
+        // Add generated on
+        doc.setFontSize(10);
+        doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, yPos);
+        yPos += 10;
+
+        // Add runtime timeline for 'today'
+        if (period === 'today') {
+            try {
+                const timelineResp = await fetch('/api/timeline?period=today');
+                if (timelineResp.ok) {
+                    const timelineData = await timelineResp.json();
+                    // Timeline bar specs
+                    const barX = 20, barY = yPos, barW = 170, barH = 12;
+                    // Draw background
+                    doc.setFillColor(220, 220, 220);
+                    doc.rect(barX, barY, barW, barH, 'F');
+                    // Draw segments
+                    const workStart = new Date(); workStart.setHours(7,0,0,0);
+                    const workEnd = new Date(); workEnd.setHours(17,0,0,0);
+                    const totalSec = (workEnd - workStart) / 1000;
+                    let lastX = barX;
+                    for (const seg of timelineData) {
+                        const segStart = new Date(seg.timestamp);
+                        const segDur = seg.duration || 0;
+                        const segEnd = new Date(segStart.getTime() + segDur * 1000);
+                        // Clamp to work hours
+                        const startFrac = Math.max(0, (segStart - workStart) / 1000 / totalSec);
+                        const endFrac = Math.min(1, (segEnd - workStart) / 1000 / totalSec);
+                        const segX = barX + startFrac * barW;
+                        const segW = Math.max(1, (endFrac - startFrac) * barW);
+                        // Color by state
+                        switch (seg.state) {
+                            case 'RUNNING': doc.setFillColor(46,204,113); break;
+                            case 'IDLE': doc.setFillColor(241,196,15); break;
+                            case 'ERROR': doc.setFillColor(231,76,60); break;
+                            case 'NO_DATA': default: doc.setFillColor(149,165,166); break;
+                        }
+                        doc.rect(segX, barY, segW, barH, 'F');
+                    }
+                    // Draw hour markers
+                    doc.setDrawColor(180);
+                    for (let h = 7; h <= 17; h++) {
+                        const frac = (h - 7) / 10;
+                        const x = barX + frac * barW;
+                        doc.line(x, barY, x, barY + barH);
+                        if (h < 17) {
+                            doc.setFontSize(8);
+                            let displayHour = h > 12 ? h - 12 : h;
+                            let ampm = h >= 12 ? 'PM' : 'AM';
+                            doc.text(`${displayHour} ${ampm}`, x + 1, barY + barH + 5);
+                        }
+                    }
+                    yPos += barH + 10;
+                    // Add legend
+                    doc.setFontSize(9);
+                    let lx = barX, ly = yPos;
+                    const legend = [
+                        {label: 'Running', color: [46,204,113]},
+                        {label: 'Idle', color: [241,196,15]},
+                        {label: 'Error', color: [231,76,60]},
+                        {label: 'No Data', color: [149,165,166]}
+                    ];
+                    for (const item of legend) {
+                        doc.setFillColor(...item.color);
+                        doc.rect(lx, ly, 6, 6, 'F');
+                        doc.setTextColor(0);
+                        doc.text(item.label, lx + 8, ly + 5);
+                        lx += 38;
+                    }
+                    yPos += 12;
+                }
+            } catch (err) {
+                doc.setFontSize(10);
+                doc.text('Failed to load runtime timeline.', 20, yPos);
+                yPos += 8;
+            }
+        }
 
         // Add summary metrics
         doc.setFontSize(12);
         if (data.summary) {
-            doc.text(`Total Runtime: ${formatDuration(data.summary.total_runtime || 0)}`, 20, yPos);
+            doc.text(`Total Runtime: ${formatDuration(data.summary.totalRuntime || 0)}`, 20, yPos);
             yPos += 10;
             doc.text(`Efficiency: ${data.summary.efficiency || 0}%`, 20, yPos);
             yPos += 10;
-            doc.text(`Best Day: ${data.summary.best_day || 'N/A'}`, 20, yPos);
+            doc.text(`Best Day: ${data.summary.bestDay || 'N/A'}`, 20, yPos);
             yPos += 10;
-            doc.text(`Average Daily Runtime: ${formatDuration(data.summary.avg_daily_runtime || 0)}`, 20, yPos);
+            doc.text(`Average Daily Runtime: ${formatDuration(data.summary.avgRuntime || 0)}`, 20, yPos);
             yPos += 20;
         }
 
@@ -1261,8 +1338,61 @@ async function generateReport(period) {
             yPos = await drawDailyTimelines(doc, yPos, period);
         }
 
-        // Add hourly distribution
-        if (data.hourly_metrics) {
+        // Add hourly table for 'today'
+        if (period === 'today' && data.hourly_metrics) {
+            doc.setFontSize(14);
+            doc.text('Hourly Table', 20, yPos);
+            yPos += 8;
+            doc.setFontSize(10);
+            doc.text('Hour', 20, yPos);
+            doc.text('Running', 40, yPos);
+            doc.text('Idle', 70, yPos);
+            doc.text('Error', 100, yPos);
+            yPos += 6;
+            for (let h = 7; h <= 17; h++) {
+                const metrics = data.hourly_metrics[h] || {running_duration: 0, idle_duration: 0, error_duration: 0};
+                doc.text(`${h}:00`, 20, yPos);
+                doc.text(formatDuration(metrics.running_duration || 0), 40, yPos);
+                doc.text(formatDuration(metrics.idle_duration || 0), 70, yPos);
+                doc.text(formatDuration(metrics.error_duration || 0), 100, yPos);
+                yPos += 6;
+            }
+            yPos += 8;
+        }
+
+        // Add state change log for 'today'
+        if (period === 'today') {
+            try {
+                const logResp = await fetch('/api/events/today?state=all&limit=1000');
+                if (logResp.ok) {
+                    const events = await logResp.json();
+                    doc.setFontSize(14);
+                    doc.text('State Change Log', 20, yPos);
+                    yPos += 8;
+                    doc.setFontSize(9);
+                    doc.text('Timestamp', 20, yPos);
+                    doc.text('State', 60, yPos);
+                    doc.text('Duration', 90, yPos);
+                    doc.text('Description', 120, yPos);
+                    yPos += 6;
+                    for (const event of events.reverse()) {
+                        if (yPos > 270) { doc.addPage(); yPos = 20; }
+                        doc.text(new Date(event.timestamp).toLocaleString(), 20, yPos, {maxWidth: 38});
+                        doc.text(event.state, 60, yPos);
+                        doc.text(formatDuration(event.duration || 0), 90, yPos);
+                        doc.text((event.description || '-').toString().substring(0, 40), 120, yPos);
+                        yPos += 6;
+                    }
+                }
+            } catch (err) {
+                doc.setFontSize(10);
+                doc.text('Failed to load state change log.', 20, yPos);
+                yPos += 8;
+            }
+        }
+
+        // Add hourly distribution (legacy, for week/month)
+        if (data.hourly_metrics && period !== 'today') {
             doc.setFontSize(14);
             doc.text('Hourly Distribution', 20, yPos);
             yPos += 15;
