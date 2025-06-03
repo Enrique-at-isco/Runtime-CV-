@@ -472,31 +472,39 @@ function updateChronograph(stateData) {
         });
     }
 
-    // Timeline bar (flex row)
+    // Timeline bar container
     const bar = document.createElement('div');
     bar.className = 'timeline-bar';
-    bar.style.display = 'flex';
+    bar.style.position = 'relative';
     bar.style.width = '100%';
     bar.style.height = '32px';
-    bar.style.position = 'relative';
+    bar.style.background = '#fff';
 
-    timelineBlocks.forEach((block, index) => {
+    // Calculate and position each block
+    timelineBlocks.forEach((block) => {
         const seg = document.createElement('div');
-        let blockMinutes = (block.endTime - block.startTime) / 60000;
+        const startOffset = (block.startTime - workdayStart) / 60000; // minutes since 7am
+        const blockDuration = (block.endTime - block.startTime) / 60000; // duration in minutes
+        
         seg.className = `timeline-segment ${block.state.toLowerCase().replaceAll('_', '-')}`;
         if (block.preShift || block.postShift) {
             seg.className += ' timeline-segment-light';
         }
-        seg.style.flex = `${blockMinutes / totalMinutes} 1 0`;
+        
+        // Position absolutely based on actual timestamps
+        seg.style.position = 'absolute';
+        seg.style.left = `${(startOffset / totalMinutes) * 100}%`;
+        seg.style.width = `${(blockDuration / totalMinutes) * 100}%`;
         seg.style.height = '100%';
-        seg.style.position = 'relative';
         seg.style.minWidth = '2px';
         seg.style.cursor = 'pointer';
+        
         // Tooltip
         const startTime = block.startTime.toLocaleTimeString();
         const endTime = block.endTime.toLocaleTimeString();
         const durationStr = formatDuration((block.endTime - block.startTime) / 1000);
         seg.title = `${block.state}\nStart: ${startTime}\nEnd: ${endTime}\nDuration: ${durationStr}\n${block.description || ''}`;
+        
         bar.appendChild(seg);
     });
 
