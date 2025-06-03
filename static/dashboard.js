@@ -1216,29 +1216,33 @@ async function generateReport(period) {
         const doc = new jsPDF();
         let yPos = 20;
 
-        // Add title
+        // 1. Title
         doc.setFontSize(20);
-        doc.text('Runtime Report', 20, yPos);
+        doc.text('CNC Runtime Dashboard Report', 20, yPos);
         yPos += 15;
 
-        // Add period
+        // 2. Period
         doc.setFontSize(14);
         const periodText = period.charAt(0).toUpperCase() + period.slice(1);
         doc.text(`Period: ${periodText}`, 20, yPos);
         yPos += 10;
-        // Add generated on
+
+        // 3. Generated on
         doc.setFontSize(10);
-        doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, yPos);
+        doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 20, yPos);
         yPos += 10;
 
-        // Add runtime timeline for 'today'
+        // 4. Today's Runtime Timeline (bar, hour markers, legend)
         if (period === 'today') {
             try {
                 const timelineResp = await fetch('/api/timeline?period=today');
                 if (timelineResp.ok) {
                     const timelineData = await timelineResp.json();
+                    doc.setFontSize(16);
+                    doc.text("Today's Runtime Timeline", 20, yPos);
+                    yPos += 8;
                     // Timeline bar specs
-                    const barX = 20, barY = yPos, barW = 170, barH = 12;
+                    const barX = 20, barY = yPos, barW = 170, barH = 14;
                     // Draw background
                     doc.setFillColor(220, 220, 220);
                     doc.rect(barX, barY, barW, barH, 'F');
@@ -1246,7 +1250,6 @@ async function generateReport(period) {
                     const workStart = new Date(); workStart.setHours(7,0,0,0);
                     const workEnd = new Date(); workEnd.setHours(17,0,0,0);
                     const totalSec = (workEnd - workStart) / 1000;
-                    let lastX = barX;
                     for (const seg of timelineData) {
                         const segStart = new Date(seg.timestamp);
                         const segDur = seg.duration || 0;
@@ -1304,42 +1307,49 @@ async function generateReport(period) {
             }
         }
 
-        // Add summary metrics
-        doc.setFontSize(12);
+        // 5. Summary Table
+        doc.setFontSize(14);
+        doc.text('Summary', 20, yPos);
+        yPos += 8;
+        doc.setFontSize(10);
         if (data.summary) {
-            doc.text(`Total Runtime: ${formatDuration(data.summary.totalRuntime || 0)}`, 20, yPos);
+            doc.text('Total Runtime:', 20, yPos);
+            doc.text(formatDuration(data.summary.totalRuntime || 0), 60, yPos);
+            yPos += 6;
+            doc.text('Efficiency:', 20, yPos);
+            doc.text(`${data.summary.efficiency || 0}%`, 60, yPos);
+            yPos += 6;
+            doc.text('Best Day:', 20, yPos);
+            doc.text(data.summary.bestDay || 'N/A', 60, yPos);
+            yPos += 6;
+            doc.text('Average Daily Runtime:', 20, yPos);
+            doc.text(formatDuration(data.summary.avgRuntime || 0), 60, yPos);
             yPos += 10;
-            doc.text(`Efficiency: ${data.summary.efficiency || 0}%`, 20, yPos);
-            yPos += 10;
-            doc.text(`Best Day: ${data.summary.bestDay || 'N/A'}`, 20, yPos);
-            yPos += 10;
-            doc.text(`Average Daily Runtime: ${formatDuration(data.summary.avgRuntime || 0)}`, 20, yPos);
-            yPos += 20;
         }
 
-        // Add state distribution
+        // 6. State Distribution Table
+        doc.setFontSize(14);
+        doc.text('State Distribution', 20, yPos);
+        yPos += 8;
+        doc.setFontSize(10);
+        doc.text('State', 20, yPos);
+        doc.text('Duration', 50, yPos);
+        doc.text('Percent', 90, yPos);
+        yPos += 6;
         if (data.state_counts) {
-            doc.setFontSize(14);
-            doc.text('State Distribution', 20, yPos);
-            yPos += 15;
-
-            doc.setFontSize(12);
             const totalTime = Object.values(data.state_counts).reduce((a, b) => a + b, 0);
             for (const [state, duration] of Object.entries(data.state_counts)) {
                 const percentage = totalTime > 0 ? ((duration / totalTime) * 100).toFixed(1) : 0;
-                doc.text(`${state}: ${formatDuration(duration)} (${percentage}%)`, 20, yPos);
-                yPos += 10;
+                doc.text(state, 20, yPos);
+                doc.text(formatDuration(duration), 50, yPos);
+                doc.text(`${percentage}%`, 90, yPos);
+                yPos += 6;
             }
-            yPos += 10;
         }
+        yPos += 8;
 
-        // Add daily timelines for weekly report
-        if (period === 'week') {
-            yPos = await drawDailyTimelines(doc, yPos, period);
-        }
-
-        // Add hourly table for 'today'
-        if (period === 'today' && data.hourly_metrics) {
+        // 7. Hourly Table (all states)
+        if (data.hourly_metrics) {
             doc.setFontSize(14);
             doc.text('Hourly Table', 20, yPos);
             yPos += 8;
@@ -1360,7 +1370,7 @@ async function generateReport(period) {
             yPos += 8;
         }
 
-        // Add state change log for 'today'
+        // 8. State Change Log Table
         if (period === 'today') {
             try {
                 const logResp = await fetch('/api/events/today?state=all&limit=1000');
@@ -1388,21 +1398,6 @@ async function generateReport(period) {
                 doc.setFontSize(10);
                 doc.text('Failed to load state change log.', 20, yPos);
                 yPos += 8;
-            }
-        }
-
-        // Add hourly distribution (legacy, for week/month)
-        if (data.hourly_metrics && period !== 'today') {
-            doc.setFontSize(14);
-            doc.text('Hourly Distribution', 20, yPos);
-            yPos += 15;
-
-            doc.setFontSize(12);
-            const hours = Object.keys(data.hourly_metrics).sort();
-            for (const hour of hours) {
-                const metrics = data.hourly_metrics[hour];
-                doc.text(`${hour}:00 - ${formatDuration(metrics.running_duration)} running`, 20, yPos);
-                yPos += 10;
             }
         }
 
