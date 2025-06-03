@@ -499,13 +499,26 @@ async def get_metrics(period: str):
         rows = cursor.fetchall()
         for row in rows:
             ts = datetime.fromisoformat(row['timestamp'])
-            hour = ts.hour
-            if row['state'] == 'RUNNING':
-                hourly_metrics[hour]['running_duration'] += float(row['duration'] or 0)
-            elif row['state'] == 'IDLE':
-                hourly_metrics[hour]['idle_duration'] += float(row['duration'] or 0)
-            elif row['state'] == 'ERROR':
-                hourly_metrics[hour]['error_duration'] += float(row['duration'] or 0)
+            duration = float(row['duration'] or 0)
+            state = row['state']
+            if duration <= 0:
+                continue
+            # Split duration across hours
+            end_ts = ts + timedelta(seconds=duration)
+            cur = ts
+            while cur < end_ts:
+                hour = cur.hour
+                # End of this hour
+                next_hour = (cur.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+                seg_end = min(end_ts, next_hour)
+                seg_duration = (seg_end - cur).total_seconds()
+                if state == 'RUNNING':
+                    hourly_metrics[hour]['running_duration'] += seg_duration
+                elif state == 'IDLE':
+                    hourly_metrics[hour]['idle_duration'] += seg_duration
+                elif state == 'ERROR':
+                    hourly_metrics[hour]['error_duration'] += seg_duration
+                cur = seg_end
 
     # Daily metrics for week/month/quarter/year
     daily_metrics = None
