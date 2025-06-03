@@ -361,7 +361,7 @@ def save_state_change(state: str, duration: float, description: str = None, tag_
     db = get_db()
     cursor = db.cursor()
     try:
-        # If duration > 0, this is updating the previous state's duration
+        # Only update previous state duration if duration > 0
         if duration > 0:
             cursor.execute('''
                 UPDATE state_changes
@@ -370,7 +370,12 @@ def save_state_change(state: str, duration: float, description: str = None, tag_
             ''', (duration,))
             db.commit()
             print(f"[DB] Updated previous state duration to {duration}s")
-        
+        # Check last state in DB
+        cursor.execute('SELECT state FROM state_changes ORDER BY timestamp DESC LIMIT 1')
+        last = cursor.fetchone()
+        if last and last['state'] == state:
+            print(f"[DB] Skipping duplicate state: {state}")
+            return
         # Insert the new state with 0 duration, using CST with timezone info
         now_cst = datetime.now(CST)
         cursor.execute('''
