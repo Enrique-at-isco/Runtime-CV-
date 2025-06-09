@@ -166,11 +166,15 @@
                 <div class="date-filter">
                     <div>
                         <label for="startDate">Start Date:</label>
-                        <input type="date" id="startDate" />
+                        <select id="startDate" class="event-filter">
+                            <!-- Options will be populated by JavaScript -->
+                        </select>
                     </div>
                     <div>
                         <label for="endDate">End Date:</label>
-                        <input type="date" id="endDate" />
+                        <select id="endDate" class="event-filter">
+                            <!-- Options will be populated by JavaScript -->
+                        </select>
                     </div>
                     <button id="applyFilter">Apply Filter</button>
                     <button id="clearFilter">Clear Filter</button>
