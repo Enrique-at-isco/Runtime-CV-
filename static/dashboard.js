@@ -809,26 +809,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme
     initializeTheme();
 
-    // Add date selector dropdown functionality
+    // Initialize Flatpickr for date selector
     const dateSelector = document.getElementById('dateSelector');
     if (dateSelector) {
-        // Populate dropdown with date options
-        const today = new Date();
-        const options = [];
-        for (let i = 0; i < 30; i++) {
-            const date = new Date(today);
-            date.setDate(today.getDate() - i);
-            const dateStr = date.toISOString().split('T')[0];
-            options.push(`<option value="${dateStr}">${dateStr}</option>`);
-        }
-        dateSelector.innerHTML += options.join('');
-
-        // Handle date selection
-        dateSelector.addEventListener('change', () => {
-            const selectedDate = dateSelector.value;
-            if (selectedDate) {
-                dateSelector.textContent = selectedDate;
-                // You can add additional logic here to filter the log based on the selected date
+        flatpickr(dateSelector, {
+            mode: 'range',
+            dateFormat: 'Y-m-d',
+            onChange: function(selectedDates, dateStr) {
+                if (selectedDates.length > 0) {
+                    dateSelector.textContent = dateStr;
+                    // You can add additional logic here to filter the log based on the selected date range
+                }
             }
         });
     }
