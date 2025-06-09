@@ -138,6 +138,15 @@
             <h2>State Change Log</h2>
             <div class="events-header">
                 <div class="event-filters">
+                    <div class="date-filter">
+                        <div>
+                            <label for="dateSelector">Date:</label>
+                            <select id="dateSelector" class="event-filter">
+                                <option value="">Select Date</option>
+                                <!-- Options will be populated by JavaScript -->
+                            </select>
+                        </div>
+                    </div>    
                     <select id="stateFilter" class="event-filter">
                         <option value="all">All States</option>
                         <option value="RUNNING">Running</option>
@@ -150,15 +159,6 @@
                         <option value="50">Last 50 events</option>
                         <option value="100">Last 100 events</option>
                     </select>
-                </div>
-                <div class="date-filter">
-                    <div>
-                        <label for="dateSelector">Date:</label>
-                        <select id="dateSelector" class="event-filter">
-                            <option value="">Select Date</option>
-                            <!-- Options will be populated by JavaScript -->
-                        </select>
-                    </div>
                 </div>
 
                 <button id="exportDataBtn" class="export-btn">
