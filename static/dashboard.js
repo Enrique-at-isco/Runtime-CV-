@@ -568,40 +568,6 @@ async function fetchTimelineData() {
     }
 }
 
-// Add date range filter UI above the State Change Log table
-const logSection = document.getElementById('state-change-log');
-const dateFilterDiv = document.createElement('div');
-dateFilterDiv.className = 'date-filter';
-dateFilterDiv.innerHTML = `
-  <div>
-    <label for="startDate">Start Date:</label>
-    <input type="date" id="startDate" />
-  </div>
-  <div>
-    <label for="endDate">End Date:</label>
-    <input type="date" id="endDate" />
-  </div>
-  <button id="applyFilter">Apply Filter</button>
-  <button id="clearFilter">Clear Filter</button>
-`;
-logSection.insertBefore(dateFilterDiv, logSection.querySelector('table'));
-
-// Prefill date inputs with today's date
-const today = new Date().toISOString().split('T')[0];
-document.getElementById('startDate').value = today;
-document.getElementById('endDate').value = today;
-
-// Add subtitle to show current range
-const rangeSubtitle = document.createElement('div');
-rangeSubtitle.id = 'rangeSubtitle';
-rangeSubtitle.className = 'range-subtitle';
-logSection.insertBefore(rangeSubtitle, logSection.querySelector('table'));
-
-// Move Export State Data button next to Refresh Log button
-const refreshLogBtn = document.getElementById('refreshLog');
-const exportDataBtn = document.getElementById('exportDataBtn');
-refreshLogBtn.parentNode.insertBefore(exportDataBtn, refreshLogBtn.nextSibling);
-
 // Update updateStateChangeLog function to accept date range
 async function updateStateChangeLog(period, startDate, endDate) {
     const stateFilter = document.getElementById('stateFilter').value;
@@ -843,55 +809,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme
     initializeTheme();
 
-    // Add date range filter UI above the State Change Log table
-    const logSection = document.getElementById('state-change-log');
-    if (logSection) {
-        const dateFilterDiv = document.createElement('div');
-        dateFilterDiv.className = 'date-filter';
-        dateFilterDiv.innerHTML = `
-          <div>
-            <label for="startDate">Start Date:</label>
-            <input type="date" id="startDate" />
-          </div>
-          <div>
-            <label for="endDate">End Date:</label>
-            <input type="date" id="endDate" />
-          </div>
-          <button id="applyFilter">Apply Filter</button>
-          <button id="clearFilter">Clear Filter</button>
-        `;
-        logSection.insertBefore(dateFilterDiv, logSection.querySelector('table'));
+    // Add date selector dropdown functionality
+    const dateSelector = document.getElementById('dateSelector');
+    if (dateSelector) {
+        // Populate dropdown with date options
+        const today = new Date();
+        const options = [];
+        for (let i = 0; i < 30; i++) {
+            const date = new Date(today);
+            date.setDate(today.getDate() - i);
+            const dateStr = date.toISOString().split('T')[0];
+            options.push(`<option value="${dateStr}">${dateStr}</option>`);
+        }
+        dateSelector.innerHTML += options.join('');
 
-        // Prefill date inputs with today's date
-        const today = new Date().toISOString().split('T')[0];
-        document.getElementById('startDate').value = today;
-        document.getElementById('endDate').value = today;
-
-        // Add subtitle to show current range
-        const rangeSubtitle = document.createElement('div');
-        rangeSubtitle.id = 'rangeSubtitle';
-        rangeSubtitle.className = 'range-subtitle';
-        logSection.insertBefore(rangeSubtitle, logSection.querySelector('table'));
-
-        // Move Export State Data button next to Refresh Log button
-        const refreshLogBtn = document.getElementById('refreshLog');
-        const exportDataBtn = document.getElementById('exportDataBtn');
-        refreshLogBtn.parentNode.insertBefore(exportDataBtn, refreshLogBtn.nextSibling);
-
-        // Add event listeners for Apply Filter and Clear Filter buttons
-        document.getElementById('applyFilter').addEventListener('click', () => {
-            const startDate = document.getElementById('startDate').value;
-            const endDate = document.getElementById('endDate').value;
-            updateStateChangeLog(currentPeriod, startDate, endDate);
+        // Handle date selection
+        dateSelector.addEventListener('change', () => {
+            const selectedDate = dateSelector.value;
+            if (selectedDate) {
+                dateSelector.textContent = selectedDate;
+                // You can add additional logic here to filter the log based on the selected date
+            }
         });
-
-        document.getElementById('clearFilter').addEventListener('click', () => {
-            document.getElementById('startDate').value = today;
-            document.getElementById('endDate').value = today;
-            updateStateChangeLog(currentPeriod);
-        });
-    } else {
-        console.error('Element with ID "state-change-log" not found.');
     }
 });
 
