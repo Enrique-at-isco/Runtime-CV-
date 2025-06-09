@@ -20,7 +20,12 @@
                 </div>
                 <div class="header-buttons">
                     <a href="/camera" id="cameraViewBtn" class="export-data-btn" style="text-decoration:none;display:inline-block;"><i class="fas fa-video"></i> Camera View</a>
-                    <button id="exportDataBtn" class="export-data-btn" onclick="exportStateData()">Export State Data</button>
+                    <button id="refreshLog" class="refresh-btn">
+                        <span class="refresh-icon">↻</span> Refresh Log
+                    </button>
+                    <button id="exportDataBtn" class="export-btn">
+                        <span class="export-icon">↓</span> Export State Data
+                    </button>
                     <button id="generateReportBtn" class="generate-report-btn">Generate Report</button>
                     <button id="clearDataBtn" class="clear-data-btn" onclick="clearAllData()">Clear All Data</button>
                 </div>
@@ -156,6 +161,22 @@
                     <span class="refresh-icon">↻</span> Refresh Log
                 </button>
             </div>
+            <!-- Add date range filter UI here -->
+            <div id="state-change-log">
+                <div class="date-filter">
+                    <div>
+                        <label for="startDate">Start Date:</label>
+                        <input type="date" id="startDate" />
+                    </div>
+                    <div>
+                        <label for="endDate">End Date:</label>
+                        <input type="date" id="endDate" />
+                    </div>
+                    <button id="applyFilter">Apply Filter</button>
+                    <button id="clearFilter">Clear Filter</button>
+                </div>
+                <div id="rangeSubtitle" class="range-subtitle"></div>
+            </div>
             <div class="events-table-container">
                 <table class="events-table">
                     <thead>
@@ -172,7 +193,6 @@
                 </table>
             </div>
         </div>
-    </div>
 
     <!-- Settings Modal -->
     <div id="settingsModal" class="modal">
