@@ -811,6 +811,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize Flatpickr for date selector
     const dateSelector = document.getElementById('dateSelector');
+    console.log('Date Selector:', dateSelector); // Debugging line
     if (dateSelector) {
         flatpickr(dateSelector, {
             mode: 'range',
@@ -822,6 +823,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+    } else {
+        console.error('Element with ID "dateSelector" not found.'); // Debugging line
     }
 });
 
