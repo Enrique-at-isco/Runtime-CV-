@@ -568,12 +568,50 @@ async function fetchTimelineData() {
     }
 }
 
-// Update state change log based on time period
-async function updateStateChangeLog(period) {
+// Add date range filter UI above the State Change Log table
+const logSection = document.getElementById('state-change-log');
+const dateFilterDiv = document.createElement('div');
+dateFilterDiv.className = 'date-filter';
+dateFilterDiv.innerHTML = `
+  <div>
+    <label for="startDate">Start Date:</label>
+    <input type="date" id="startDate" />
+  </div>
+  <div>
+    <label for="endDate">End Date:</label>
+    <input type="date" id="endDate" />
+  </div>
+  <button id="applyFilter">Apply Filter</button>
+  <button id="clearFilter">Clear Filter</button>
+`;
+logSection.insertBefore(dateFilterDiv, logSection.querySelector('table'));
+
+// Prefill date inputs with today's date
+const today = new Date().toISOString().split('T')[0];
+document.getElementById('startDate').value = today;
+document.getElementById('endDate').value = today;
+
+// Add subtitle to show current range
+const rangeSubtitle = document.createElement('div');
+rangeSubtitle.id = 'rangeSubtitle';
+rangeSubtitle.className = 'range-subtitle';
+logSection.insertBefore(rangeSubtitle, logSection.querySelector('table'));
+
+// Move Export State Data button next to Refresh Log button
+const refreshLogBtn = document.getElementById('refreshLog');
+const exportDataBtn = document.getElementById('exportDataBtn');
+refreshLogBtn.parentNode.insertBefore(exportDataBtn, refreshLogBtn.nextSibling);
+
+// Update updateStateChangeLog function to accept date range
+async function updateStateChangeLog(period, startDate, endDate) {
     const stateFilter = document.getElementById('stateFilter').value;
     const limitFilter = document.getElementById('limitFilter').value;
     try {
-        const response = await fetch(`/api/events/${period}?state=${stateFilter}&limit=${limitFilter}`);
+        let url = `/api/events/${period}?state=${stateFilter}&limit=${limitFilter}`;
+        if (startDate && endDate) {
+            url += `&start=${startDate}&end=${endDate}`;
+        }
+        const response = await fetch(url);
         const events = await response.json();
         const tbody = document.getElementById('events-list');
         tbody.innerHTML = '';
@@ -596,10 +634,29 @@ async function updateStateChangeLog(period) {
             `;
             tbody.appendChild(row);
         });
+        // Update range subtitle
+        if (startDate && endDate) {
+            rangeSubtitle.textContent = `Showing entries from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`;
+        } else {
+            rangeSubtitle.textContent = '';
+        }
     } catch (error) {
         console.error('Error updating state change log:', error);
     }
 }
+
+// Add event listeners for Apply Filter and Clear Filter buttons
+document.getElementById('applyFilter').addEventListener('click', () => {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    updateStateChangeLog(currentPeriod, startDate, endDate);
+});
+
+document.getElementById('clearFilter').addEventListener('click', () => {
+    document.getElementById('startDate').value = today;
+    document.getElementById('endDate').value = today;
+    updateStateChangeLog(currentPeriod);
+});
 
 // Update metrics based on time period
 async function updateMetrics(period) {
